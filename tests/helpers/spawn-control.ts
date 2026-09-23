@@ -41,6 +41,10 @@ export async function createTestEnv(opts: { leaseTtlMs?: number; deepseekBaseUrl
     },
   });
 
+  // provision TaskPack suites + sealed release suites into the test data dir
+  const { provisionInto } = await import("../../scripts/seal-suites.js");
+  provisionInto(path.join(dataDir, "taskpacks"), path.join(dataDir, "sealed"));
+
   return {
     app,
     inject: app.app.inject.bind(app.app),

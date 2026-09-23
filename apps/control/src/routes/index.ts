@@ -259,6 +259,69 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return buf;
   });
 
+  // ---- evolution operations (HTTP surface for the evolution loop) ----------
+  app.post("/v1/goals/:id/evolution/collect-problems", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const ids = await svc.evolution.collectProblems((req.params as any).id);
+    return { problem_ids: ids };
+  });
+
+  app.post("/v1/goals/:id/evolution/propose", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const { problem_id, taskpack_id, allowed_path } = req.body as any;
+    const prop = await svc.evolution.proposeChange({
+      goalId: (req.params as any).id, problemId: String(problem_id),
+      taskpackId: String(taskpack_id ?? "algorithm-search.bin-packing"),
+      allowedPath: String(allowed_path ?? "heuristic.py"),
+    });
+    if (!prop) return reply.code(502).send({ error: "proposer produced no usable proposal" });
+    return reply.code(202).send(prop);
+  });
+
+  app.post("/v1/goals/:id/evolution/build", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const { proposal_id, taskpack_id, allowed_path } = req.body as any;
+    const candId = await svc.evolution.buildCandidate({
+      goalId: (req.params as any).id, proposalId: String(proposal_id),
+      taskpackId: String(taskpack_id ?? "algorithm-search.bin-packing"),
+      allowedPath: String(allowed_path ?? "heuristic.py"),
+    });
+    if (!candId) return reply.code(502).send({ error: "no candidate code available for this proposal" });
+    return reply.code(202).send({ candidate_id: candId });
+  });
+
+  app.post("/v1/goals/:id/evolution/evaluate", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const { candidate_id, taskpack_id, contract_version } = req.body as any;
+    const res = await svc.evolution.evaluateCandidate({
+      goalId: (req.params as any).id, candidateId: String(candidate_id),
+      taskpackId: String(taskpack_id ?? "algorithm-search.bin-packing"),
+      contractVersion: String(contract_version ?? "bin-packing/v1"),
+    });
+    return res;
+  });
+
+  app.post("/v1/goals/:id/evolution/promote", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const { candidate_id, scope, kind } = req.body as any;
+    const res = await svc.evolution.promote({
+      goalId: (req.params as any).id, candidateId: String(candidate_id),
+      scope: String(scope ?? "algorithm:bin-packing"),
+      kind: kind === "full" ? "full" : "canary",
+    });
+    return reply.code(res.ok ? 200 : 409).send(res);
+  });
+
+  app.post("/v1/goals/:id/evolution/canary-check", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const { scope, taskpack_id } = req.body as any;
+    const res = await svc.evolution.checkCanaryRegression(
+      String(scope ?? "algorithm:bin-packing"),
+      String(taskpack_id ?? "algorithm-search.bin-packing"),
+    );
+    return res;
+  });
+
   // ---- approvals -------------------------------------------------------------------
   app.get("/v1/approvals", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;

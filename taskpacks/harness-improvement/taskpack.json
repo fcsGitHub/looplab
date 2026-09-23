@@ -1,0 +1,39 @@
+{
+  "kind": "TaskPack",
+  "apiVersion": "looplab/v1",
+  "id": "harness-improvement.tool-failures",
+  "project": "harness-improvement",
+  "objective": "improve_tool_failure_handling_under_fault_injection",
+  "baseline": {
+    "entry": "baseline_config.json",
+    "evaluation_ref": "suite://harness-improvement.tool-failures/dev-v1"
+  },
+  "mutation": {
+    allowed_paths_note: "candidate 修改 harness_config.json 的允许字段",
+    "allowed_paths": ["harness_config.json"],
+    "allowed_fields": ["max_retries", "backoff_base_ms", "truncate_chars", "retry_on", "stream_output"],
+    "dependency_changes": "forbidden"
+  },
+  "validation": {
+    "build": "skip",
+    "feasibility": "required",
+    "dev_suite_ref": "suite://harness-improvement.tool-failures/dev-v1",
+    "selection_suite_ref": "suite://harness-improvement.tool-failures/selection-v1",
+    "release_suite_ref": "sealed://harness-improvement.tool-failures/release-v1"
+  },
+  "resources": {
+    "worker_class": "cpu-sandbox",
+    "cpu_seconds_per_trial": 1,
+    "memory_mb": 256,
+    "total_trials_cap": 60
+  },
+  "outputs": {
+    "required": ["config_digest", "raw_results", "comparison"]
+  },
+  "metrics": {
+    "primary": "success_rate",
+    "minimize": false,
+    "min_effect_delta": 0.08,
+    "max_regression_epsilon": 0.03
+  }
+}

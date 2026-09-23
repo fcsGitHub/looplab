@@ -1,0 +1,172 @@
+{
+ "taskpack_id": "harness-improvement.tool-failures",
+ "layer": "release",
+ "contract_version": "harness/v1",
+ "metric": "success_rate",
+ "minimize": false,
+ "min_effect_delta": 0.08,
+ "max_regression_epsilon": 0.03,
+ "time_limit_ms_per_problem": 1000,
+ "scenarios": [
+  {
+   "id": "release-300",
+   "seed": 300,
+   "tool_fail_mode": "empty",
+   "fail_probability": 0.20220996770076455,
+   "n_tool_calls": 7,
+   "context_budget_chars": 5591
+  },
+  {
+   "id": "release-301",
+   "seed": 301,
+   "tool_fail_mode": "timeout",
+   "fail_probability": 0.6870160561986267,
+   "n_tool_calls": 5,
+   "context_budget_chars": 4779
+  },
+  {
+   "id": "release-302",
+   "seed": 302,
+   "tool_fail_mode": "empty",
+   "fail_probability": 0.2515832358505577,
+   "n_tool_calls": 6,
+   "context_budget_chars": 5581
+  },
+  {
+   "id": "release-303",
+   "seed": 303,
+   "tool_fail_mode": "timeout",
+   "fail_probability": 0.45422795838676394,
+   "n_tool_calls": 5,
+   "context_budget_chars": 4005
+  },
+  {
+   "id": "release-304",
+   "seed": 304,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.6560266758780926,
+   "n_tool_calls": 8,
+   "context_budget_chars": 3027
+  },
+  {
+   "id": "release-305",
+   "seed": 305,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.6317279940005391,
+   "n_tool_calls": 8,
+   "context_budget_chars": 4625
+  },
+  {
+   "id": "release-306",
+   "seed": 306,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.3628052005544305,
+   "n_tool_calls": 3,
+   "context_budget_chars": 6957
+  },
+  {
+   "id": "release-307",
+   "seed": 307,
+   "tool_fail_mode": "timeout",
+   "fail_probability": 0.41381685265805573,
+   "n_tool_calls": 4,
+   "context_budget_chars": 3600
+  },
+  {
+   "id": "release-308",
+   "seed": 308,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.32876593531109394,
+   "n_tool_calls": 4,
+   "context_budget_chars": 6828
+  },
+  {
+   "id": "release-309",
+   "seed": 309,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.21501218602061273,
+   "n_tool_calls": 4,
+   "context_budget_chars": 7617
+  },
+  {
+   "id": "release-310",
+   "seed": 310,
+   "tool_fail_mode": "timeout",
+   "fail_probability": 0.4591278371401131,
+   "n_tool_calls": 7,
+   "context_budget_chars": 4315
+  },
+  {
+   "id": "release-311",
+   "seed": 311,
+   "tool_fail_mode": "huge_output",
+   "fail_probability": 0.3425774039234966,
+   "n_tool_calls": 7,
+   "context_budget_chars": 6455
+  },
+  {
+   "id": "release-312",
+   "seed": 312,
+   "tool_fail_mode": "transient_5xx",
+   "fail_probability": 0.2201198656577617,
+   "n_tool_calls": 5,
+   "context_budget_chars": 5139
+  },
+  {
+   "id": "release-313",
+   "seed": 313,
+   "tool_fail_mode": "transient_5xx",
+   "fail_probability": 0.47001496113371105,
+   "n_tool_calls": 7,
+   "context_budget_chars": 6714
+  },
+  {
+   "id": "release-314",
+   "seed": 314,
+   "tool_fail_mode": "empty",
+   "fail_probability": 0.6960595112061128,
+   "n_tool_calls": 6,
+   "context_budget_chars": 7865
+  },
+  {
+   "id": "release-315",
+   "seed": 315,
+   "tool_fail_mode": "timeout",
+   "fail_probability": 0.49872327495832,
+   "n_tool_calls": 8,
+   "context_budget_chars": 6194
+  },
+  {
+   "id": "release-316",
+   "seed": 316,
+   "tool_fail_mode": "transient_5xx",
+   "fail_probability": 0.25343604204244913,
+   "n_tool_calls": 5,
+   "context_budget_chars": 7068
+  },
+  {
+   "id": "release-317",
+   "seed": 317,
+   "tool_fail_mode": "transient_5xx",
+   "fail_probability": 0.5038849820150062,
+   "n_tool_calls": 8,
+   "context_budget_chars": 4992
+  },
+  {
+   "id": "release-318",
+   "seed": 318,
+   "tool_fail_mode": "empty",
+   "fail_probability": 0.3710071553243324,
+   "n_tool_calls": 3,
+   "context_budget_chars": 5762
+  },
+  {
+   "id": "release-319",
+   "seed": 319,
+   "tool_fail_mode": "empty",
+   "fail_probability": 0.28238378062378616,
+   "n_tool_calls": 4,
+   "context_budget_chars": 7994
+  }
+ ]
+}

@@ -1,0 +1,44 @@
+{
+  "kind": "TaskPack",
+  "apiVersion": "looplab/v1",
+  "id": "algorithm-search.bin-packing",
+  "project": "algorithm-search",
+  "objective": "improve_solution_quality_under_fixed_resources",
+  "baseline": {
+    "entry": "baseline.py",
+    "evaluation_ref": "suite://bin-packing/dev-v1"
+  },
+  "mutation": {
+    "allowed_paths": ["heuristic.py"],
+    "allowed_exports": ["pack"],
+    "dependency_changes": "forbidden"
+  },
+  "validation": {
+    "build": "required",
+    "feasibility": "required",
+    "dev_suite_ref": "suite://bin-packing/dev-v1",
+    "selection_suite_ref": "suite://bin-packing/selection-v1",
+    "release_suite_ref": "sealed://bin-packing/release-v1"
+  },
+  "resources": {
+    "worker_class": "cpu-sandbox",
+    "cpu_seconds_per_trial": 2,
+    "memory_mb": 512,
+    "total_trials_cap": 40
+  },
+  "outputs": {
+    "required": ["source_digest", "raw_results", "environment_digest", "comparison"]
+  },
+  "metrics": {
+    "primary": "bins_avg",
+    "minimize": true,
+    "min_effect_delta": 0.05,
+    "max_regression_epsilon": 0.02
+  },
+  "candidate_interface": {
+    "module": "heuristic",
+    "function": "pack",
+    "signature": "pack(items: list[int], capacity: int) -> list[list[int]]",
+    "contract": "返回若干个 bin（每个 bin 是 items 的子集划分）；所有物品必须恰好出现一次；每个 bin 的尺寸和不得超过 capacity。禁用标准库以外的依赖；禁止网络、子进程与文件读写（审计钩子强制）。"
+  }
+}
