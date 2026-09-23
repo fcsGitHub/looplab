@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.log
+data/
+.artifacts/
+playwright-report/
+test-results/
+__pycache__/
+*.pyc
+pgdata/
+keys.txt
