@@ -66,4 +66,4 @@
 
 - `DEEPSEEK_API_KEY=… npx vitest run`：25 passed / 1 skipped（BLOCKED 占位）/ 0 failed。
 - `npx playwright test`：2 passed（真实浏览器主路径 + 未认证 SSE 拒绝）。
-- 累计真实模型开销：全程约 $2.6（全部计入预算账本，可在 /v1/metrics 复核）。
+- 累计真实模型开销：全程约 $10.9（3952 次调用——含孤儿 worker 舰队对历史积压目标的消耗；全部计入预算账本，可在 /v1/metrics 复核。事故 003 的孤儿进程是超支主因，已全部清场）。
