@@ -1,0 +1,21 @@
+run_log.txt - Experimenter record
+workspace: D:\project\looplab\data\workspaces\att_037d033a802d46a3
+
+=== Run 1: python3 primes_sum.py ===
+note: primes_sum.py was NOT present in the workspace directory; it was found at the repo root.
+resolved script path: D:\project\looplab\primes_sum.py
+command: python3 D:\project\looplab\primes_sum.py
+exit_code: 0
+stdout: 24133
+stderr: 
+
+=== Run 2: independent reference ===
+command: python3 -c "print(sum([2,3,5,...,541]))"  # literal list of first 100 primes
+exit_code: 0
+stdout: 24133
+stderr: 
+
+=== Comparison ===
+primes_sum.py stdout: 24133
+reference stdout:     24133
+match: True

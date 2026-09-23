@@ -139,7 +139,7 @@ export const CommitPayloadSchema = z.object({
   lease_epoch: z.number().int().positive(),
   expected_status: z.enum(["RUNNING", "RESULT_PENDING"]),
   outcome: z.enum(["SUCCEEDED", "FAILED"]),
-  error_class: z.string().nullable(),
+  error_class: z.string().nullable().default(null),
   summary: z.string(),
   artifacts: z.array(z.object({
     name: z.string(),
@@ -159,7 +159,7 @@ export const CommitPayloadSchema = z.object({
     kind: z.string(),
     passed: z.boolean(),
     detail: z.string(),
-  }).nullable(),
+  }).nullable().default(null),
 });
 export type CommitPayload = z.infer<typeof CommitPayloadSchema>;
 
@@ -190,7 +190,9 @@ export const GraphContractSchema = z.object({
   /** agent-graph loops are allowed but must declare bounded revisit limits */
   loops: z.array(z.object({
     back_edge: z.object({ from: z.string(), to: z.string() }),
-    max_visits: z.number().int().positive(),
+    // boundedness is enforced by the graph compiler (not here) so that the
+    // "unbounded_loop" error class stays meaningful
+    max_visits: z.number().int(),
     exit_condition: z.string(),
   })).default([]),
 });

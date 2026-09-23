@@ -79,8 +79,19 @@ export class CapabilityGateway {
         PYTHONDONTWRITEBYTECODE: "1",
         LOOPLAB_SANDBOX: this.workspaceDir,
       };
+      // Belt-and-suspenders: the spawn cwd option must be honored, but a silent
+      // fallback to the worker's own cwd would be a sandbox escape into the
+      // control-service tree. Force the chdir inside the child and fail loudly
+      // if it does not hold. `__main__` semantics preserved for user scripts.
+      const bootstrap =
+        `import os as _os, sys as _sys\n` +
+        `_WS = ${JSON.stringify(this.workspaceDir)}\n` +
+        `_os.chdir(_WS)\n` +
+        `if _os.path.realpath(_os.getcwd()) != _os.path.realpath(_WS):\n` +
+        `    _sys.stderr.write("SANDBOX VIOLATION: cwd=%r expected=%r\\n" % (_os.getcwd(), _WS)); _sys.exit(126)\n`;
+      const wrapped = bootstrap + script + "\n";
       this.runningChildren++;
-      const child = spawn("python", ["-I", "-c", script], {
+      const child = spawn("python", ["-I", "-c", wrapped], {
         cwd: this.workspaceDir,
         env,
         timeout: this.limits.toolTimeoutMs,
