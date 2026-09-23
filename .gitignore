@@ -12,3 +12,4 @@ pgdata/
 keys.txt
 .env.local
 config/.env.local
+sealed/
