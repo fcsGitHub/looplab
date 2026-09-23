@@ -1,0 +1,14 @@
+{
+  "name": "@looplab/agent-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@looplab/contracts": "*",
+    "tsx": "^4.19.0"
+  }
+}

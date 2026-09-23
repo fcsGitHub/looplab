@@ -1,0 +1,15 @@
+Verification of is_prime(n) in prime.py
+==================================================
+[PASS] is_prime(1) = False (expected False) -- 1 is not prime (unit)
+[PASS] is_prime(2) = True (expected True) -- 2 is the smallest prime
+[PASS] is_prime(3) = True (expected True) -- 3 is prime
+[PASS] is_prime(4) = False (expected False) -- 4 = 2*2 is composite
+[PASS] is_prime(9) = False (expected False) -- 9 = 3*3 is composite (odd)
+[PASS] is_prime(17) = True (expected True) -- 17 is prime
+[PASS] is_prime(25) = False (expected False) -- 25 = 5*5 is composite
+[PASS] is_prime(97) = True (expected True) -- 97 is prime
+[PASS] is_prime(100) = False (expected False) -- 100 is composite
+[PASS] is_prime(7919) = True (expected True) -- 7919 is the 1000th prime
+
+10/10 test cases passed.
+Cross-check vs sieve up to 10000: mismatches = 0
