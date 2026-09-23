@@ -1,0 +1,50 @@
+RUN LOG — primes_count.py execution
+====================================
+
+Executed script (absolute path):
+  D:\project\looplab\primes_count.py
+
+Note on location: the attempt workspace root
+(D:\project\looplab\data\workspaces\att_bf5ba9d34f724836) is empty; the target
+script lives at the git repo root D:\project\looplab\primes_count.py. The script
+was executed in place with the same Python interpreter.
+
+Command:
+  python3 primes_count.py   (run with cwd = D:\project\looplab)
+
+------------------------------------------------------
+1) Full STDOUT (decoded as UTF-8)
+------------------------------------------------------
+1 到 10000 中素数个数: 1229
+
+Raw stdout bytes:
+  b'1 \xe5\x88\xb0 10000 \xe4\xb8\xad\xe7\xb4\xa0\xe6\x95\xb0\xe4\xb8\xaa\xe6\x95\xb0: 1229\r\n'
+
+------------------------------------------------------
+2) STDERR
+------------------------------------------------------
+(empty)
+
+------------------------------------------------------
+3) Exit code
+------------------------------------------------------
+0
+
+------------------------------------------------------
+4) Elapsed time (wall clock, subprocess)
+------------------------------------------------------
+run 1: 0.069963 s
+run 2: 0.062757 s
+run 3: 0.060686 s
+reported (first run): 0.070988 s
+min: 0.060686 s   max: 0.069963 s
+
+------------------------------------------------------
+5) PASS / FAIL judgment
+------------------------------------------------------
+Criteria: exit code == 0 AND stdout contains "1229".
+  exit code 0            -> OK
+  stdout contains "1229" -> OK (value printed = 1229, matches pi(10000))
+VERDICT: PASS
+
+No traceback produced (exit code was 0).

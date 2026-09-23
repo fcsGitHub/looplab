@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
+    "@fastify/static": "^10.1.4",
     "@looplab/contracts": "*",
     "@looplab/llm": "*",
     "@looplab/policy": "*",

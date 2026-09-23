@@ -79,16 +79,38 @@ export class CapabilityGateway {
         PYTHONDONTWRITEBYTECODE: "1",
         LOOPLAB_SANDBOX: this.workspaceDir,
       };
-      // Belt-and-suspenders: the spawn cwd option must be honored, but a silent
-      // fallback to the worker's own cwd would be a sandbox escape into the
-      // control-service tree. Force the chdir inside the child and fail loudly
-      // if it does not hold. `__main__` semantics preserved for user scripts.
+      // Sandbox enforcement INSIDE the child (audit hook, PEP 578):
+      // - spawn cwd may be silently ignored by the OS layer -> force chdir
+      // - relative AND absolute paths outside the workspace are denied
+      // - networking, subprocesses are denied outright
+      // Denials are reported on fd2 with a marker so the gateway can flag the
+      // tool result even when the script swallows the exception.
       const bootstrap =
         `import os as _os, sys as _sys\n` +
-        `_WS = ${JSON.stringify(this.workspaceDir)}\n` +
+        `_WS = _os.path.realpath(${JSON.stringify(this.workspaceDir)})\n` +
+        `_STD = _os.path.realpath(_sys.prefix) + _os.sep\n` +
         `_os.chdir(_WS)\n` +
-        `if _os.path.realpath(_os.getcwd()) != _os.path.realpath(_WS):\n` +
-        `    _sys.stderr.write("SANDBOX VIOLATION: cwd=%r expected=%r\\n" % (_os.getcwd(), _WS)); _sys.exit(126)\n`;
+        `if _os.path.realpath(_os.getcwd()) != _WS:\n` +
+        `    _sys.stderr.write("LOOPLAB_SANDBOX: chdir failed\\n"); _sys.exit(126)\n` +
+        `def _inside(p):\n` +
+        `    if isinstance(p, bytes): p = p.decode("utf-8", "replace")\n` +
+        `    if not isinstance(p, str) or not p: return True\n` +
+        `    rp = _os.path.realpath(p)\n` +
+        `    return rp.startswith(_WS + _os.sep) or rp.startswith(_STD)\n` +
+        `def _deny(msg):\n` +
+        `    try: _os.write(2, msg.encode("utf-8", "replace"))\n` +
+        `    except Exception: pass\n` +
+        `    raise PermissionError(msg)\n` +
+        `def _guard(event, args):\n` +
+        `    if event == "open":\n` +
+        `        p = args[0] if args else None\n` +
+        `        if not _inside(p): _deny("LOOPLAB_SANDBOX: open(%r) denied\\n" % (p,))\n` +
+        `    elif event in ("os.remove", "os.rmdir", "os.rename"):\n` +
+        `        if not all(_inside(a) for a in args if a is not None):\n` +
+        `            _deny("LOOPLAB_SANDBOX: %s %r denied\\n" % (event, args,))\n` +
+        `    elif event in ("socket.connect", "socket.bind", "socket.getaddrinfo", "subprocess.Popen", "os.system", "os.exec", "os.fork", "os.spawn"):\n` +
+        `        _deny("LOOPLAB_SANDBOX: %s denied\\n" % (event,))\n` +
+        `_sys.addaudithook(_guard)\n`;
       const wrapped = bootstrap + script + "\n";
       this.runningChildren++;
       const child = spawn("python", ["-I", "-c", wrapped], {
@@ -117,10 +139,14 @@ export class CapabilityGateway {
       });
       const finish = (ok: boolean) => {
         this.runningChildren--;
-        const bytes = Buffer.byteLength(out);
+        // surface sandbox denials even when the script swallowed them
+        const violated = out.includes("LOOPLAB_SANDBOX:");
+        const note = violated ? "\n[LOOPLAB_SANDBOX] 本次执行包含越权访问尝试，已阻断并记录。" : "";
+        const body = out.slice(0, this.limits.maxOutputBytes) + note;
+        const bytes = Buffer.byteLength(body);
         resolve({
-          ok,
-          output: out.slice(0, this.limits.maxOutputBytes),
+          ok: ok && !violated,
+          output: body,
           outputBytes: bytes,
           truncated: bytes > this.limits.maxOutputBytes,
           durationMs: Date.now() - started,

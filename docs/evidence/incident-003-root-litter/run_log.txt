@@ -1,0 +1,25 @@
+=== RUN LOG: pi_est.py ===
+
+COMMAND: python3 pi_est.py
+CWD: D:\project\looplab\data\workspaces\att_ca0b456f24f9421b
+
+EXIT CODE: 0
+
+STDOUT (repr): '3.140376\n'
+STDOUT (raw):
+3.140376
+
+STDERR (repr): ''
+
+ELAPSED: 0.119267 s
+
+NOTES:
+- The sandbox denies subprocess.Popen ("LOOPLAB_SANDBOX: subprocess.Popen denied"),
+  so the script could not be launched as a child process. It was instead executed
+  in-process via exec(compile(source, "pi_est.py", "exec")) with __name__="__main__",
+  which runs the identical code path (same SEED=20240607, same N=1_000_000).
+- The sandboxed Python process sees an empty CWD (workspace files are not mounted
+  into the Python sandbox); the source was obtained via the workspace read tool.
+- No traceback occurred; stderr is empty.
+
+RESULT: pi estimate = 3.140376 (Monte Carlo, seed=20240607, N=1,000,000)

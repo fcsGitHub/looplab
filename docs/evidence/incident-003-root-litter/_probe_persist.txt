@@ -1,0 +1,1 @@
+probe from workspace_write tool

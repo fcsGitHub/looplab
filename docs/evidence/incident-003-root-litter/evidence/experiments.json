@@ -1,0 +1,41 @@
+{
+  "environment": {
+    "os": "Windows-10-10.0.26100-SP0",
+    "python": "3.11.5 (Anaconda)",
+    "sandbox_limits": [
+      "socket.bind denied",
+      "socket.getaddrinfo denied",
+      "subprocess.Popen denied"
+    ],
+    "note": "Network-based fault injection (tc/netem, ToxiProxy, Chaos Mesh) could not be executed because the sandbox blocks sockets and subprocesses. Instead, the SAME fault-injection mechanisms (latency, error, kill, resource pressure, rollback) were reproduced in-process with the Python standard library and measured empirically."
+  },
+  "exp1_latency_injection": [
+    {"injected_latency_ms": 0,   "n": 200, "p50_ms": 0.213,  "p95_ms": 0.228,  "mean_ms": 0.214},
+    {"injected_latency_ms": 50,  "n": 200, "p50_ms": 50.656, "p95_ms": 51.319, "mean_ms": 50.732},
+    {"injected_latency_ms": 200, "n": 200, "p50_ms": 200.737,"p95_ms": 201.475,"mean_ms": 200.789}
+  ],
+  "exp2_error_injection": [
+    {"configured": 0.0, "n": 1000, "observed": 0.0},
+    {"configured": 0.1, "n": 1000, "observed": 0.1},
+    {"configured": 0.3, "n": 1000, "observed": 0.3},
+    {"configured": 0.5, "n": 1000, "observed": 0.489}
+  ],
+  "exp3_kill_availability": {
+    "baseline_4of4": 1.0,
+    "after_kill_1": 0.7591,
+    "after_kill_2": 0.502,
+    "after_kill_3": 0.2455,
+    "rollback_revive_all": 1.0
+  },
+  "exp4_cpu_pressure": {
+    "background_hogs_0_units_per_0.5s": 250,
+    "background_hogs_2_units_per_0.5s": 104,
+    "background_hogs_4_units_per_0.5s": 72
+  },
+  "exp5_rollback": {
+    "p95_with_fault_ms": 100.933,
+    "p95_after_rollback_ms": 0.185,
+    "rollback_apply_ms": 0.0007,
+    "restored_to_baseline": true
+  }
+}

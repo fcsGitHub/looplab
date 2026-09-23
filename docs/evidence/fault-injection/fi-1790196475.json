@@ -1,0 +1,39 @@
+{
+ "goal_id": "goal_3eca41c70ad349f8",
+ "injected_fault": "kill -9 the worker process (fi-victim) mid-attempt att_df158c6fe7d645ee (status RUNNING)",
+ "observed": {
+  "victim_attempts_committed_before_kill": 4,
+  "killed_attempt_reconciled": "supervisor marked attempt LOST and requeued the task (see events attempt.lost)",
+  "task_t5": "failed 3 times with same fingerprint -> parked WAITING + diagnose task created (A13)",
+  "diagnose_task": "SUCCEEDED",
+  "final_goal_state": "ACTIVE (parked: t5 WAITING pending re-planning/user input; honest, no fake completion)"
+ },
+ "ledger_proof": [
+  "tool.call_authorized",
+  "checkpoint.saved",
+  "tool.call_completed",
+  "model.call_started",
+  "model.call_completed",
+  "attempt.committed"
+ ],
+ "attempts": [
+  "1|fi-victim|COMMITTED",
+  "1|fi-victim|COMMITTED",
+  "1|fi-victim|COMMITTED",
+  "1|fi-victim|COMMITTED",
+  "1|fi-victim|COMMITTED",
+  "2|fi-victim|COMMITTED",
+  "3|fi-victim|COMMITTED",
+  "1|fi-victim|COMMITTED"
+ ],
+ "tasks": [
+  "t2|SUCCEEDED|0",
+  "t3|SUCCEEDED|0",
+  "t4|SUCCEEDED|0",
+  "t5|WAITING|3",
+  "t1|SUCCEEDED|0",
+  "diagnose_t5_1790195285284|SUCCEEDED|0"
+ ],
+ "at": "2026-09-23T20:47:55.532579Z",
+ "note": "kill moment verified live (taskkill confirmed); observation window cut short by script timeout, ledger queried directly afterwards."
+}

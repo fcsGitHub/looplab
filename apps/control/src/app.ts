@@ -1,8 +1,13 @@
 // App factory: used by the production entrypoint and by the integration tests
 // (in-process boot against an isolated database).
 import Fastify from "fastify";
+import fastifyStatic from "@fastify/static";
 import cookie from "@fastify/cookie";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { loadConfig, type Config } from "./config.js";
 import { Db } from "./db.js";
 import { AuthService } from "./auth.js";
@@ -30,6 +35,19 @@ export async function buildApp(configOverride: Partial<Config> = {}) {
 
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024 * 1024 });
   await app.register(cookie, { secret: process.env.LL_COOKIE_SECRET ?? "looplab-dev-secret" });
+
+  // serve the built web app (single-process deployment)
+  const webDist = path.resolve(__dirname, "../../../apps/web/dist");
+  if (existsSync(webDist)) {
+    await app.register(fastifyStatic, { root: webDist });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.url?.startsWith("/v1/") || req.raw.url?.startsWith("/metrics")) {
+        reply.code(404).send({ error: "not found" });
+        return;
+      }
+      return reply.sendFile("index.html");
+    });
+  }
 
   // raw binary bodies for the artifact upload endpoint
   app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (req, body, done) => {

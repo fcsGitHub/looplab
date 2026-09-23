@@ -1,0 +1,43 @@
+ACCEPTANCE CHECKLIST
+====================
+Task: Count primes in [1, 5000] (inclusive) and print the count.
+
+Deliverable
+-----------
+- File: primes_1_5000.py  (workspace root)
+- Function: computes the number of primes in 1..5000 inclusive and prints it.
+
+Run command
+-----------
+python3 primes_1_5000.py
+
+Expected output
+---------------
+669
+(single line, single integer; this is the known value pi(5000) = 669)
+
+Acceptance criteria (all must pass)
+-----------------------------------
+[x] AC1 - Script exists at workspace root as primes_1_5000.py
+[x] AC2 - Script runs without error via: python3 primes_1_5000.py
+[x] AC3 - stdout is exactly one integer (no extra text, no traceback)
+[x] AC4 - The printed integer equals 669
+[x] AC5 - Result verified by real execution (not asserted/fabricated)
+
+Verification method
+-------------------
+Execute the script's exact source in a real Python 3 process, capture stdout,
+strip whitespace, and assert the value is the integer 669. Compare against an
+independent reference computation of pi(5000).
+
+Evidence
+--------
+- Independent reference computation of pi(5000) returned: 669
+- Script execution stdout repr: '669\n'  -> stripped value: 669
+- All criteria: PASS
+
+Note
+----
+The run_python sandbox uses a separate filesystem view from the workspace, so
+the script was verified by executing its exact source content (byte-identical
+to the delivered file) in the sandboxed Python 3 process.

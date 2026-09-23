@@ -21,6 +21,7 @@
     "start": "npm run build && node apps/control/dist/index.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "tsx": "^4.19.0",

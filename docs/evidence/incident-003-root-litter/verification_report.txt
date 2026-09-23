@@ -1,0 +1,41 @@
+CROSS-VALIDATION REPORT: primes_count.py
+=========================================
+
+1. SCRIPT UNDER TEST
+   File: primes_count.py (Sieve of Eratosthenes, counts primes in [1, n], n=5000)
+
+2. SCRIPT EXECUTION
+   Note: the Python sandbox denies subprocess.Popen and runs in an isolated
+   empty cwd, so the script could not be launched as a child process.
+   Instead the exact source read from the workspace was executed in-process
+   with __name__ == "__main__", capturing stdout and the exit code.
+
+   Exit code: 0
+   Full stdout:
+     Primes in [1, 5000]: 669
+     First 10 primes: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+     Last prime: 4999
+
+3. INDEPENDENT METHOD (different algorithm: trial division, no sieve)
+   Expression:
+     sum(all(i % j for j in range(2, int(i**0.5)+1)) for i in range(2, 5001))
+   Result: 669
+
+   (An earlier attempt used `all(...) == 0`, which inverted the primality
+   test and gave a wrong 4330; that bug was identified and corrected. The
+   corrected expression is the one reported above.)
+
+4. CONSISTENCY CHECK
+   Sieve result  : 669
+   Trial-division: 669
+   Equal         : True
+
+   Additional independent spot checks (trial division):
+     pi(10)   = 4    (expected 4)   OK
+     pi(100)  = 25   (expected 25)  OK
+     pi(1000) = 168  (expected 168) OK
+     is 4999 prime? True (matches "Last prime: 4999")
+
+5. CONCLUSION
+   The two independent methods agree exactly: 669 primes in [1, 5000].
+   The script's output is cross-validated and consistent.

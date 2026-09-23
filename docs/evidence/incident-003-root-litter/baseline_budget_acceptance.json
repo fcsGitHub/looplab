@@ -1,0 +1,32 @@
+{
+  "task_id": "att_2ec6a106028c45de",
+  "task_title_raw": "诊断重复失败: 诊断重复失败: 诊断重复失败: 诊断重复失败: 诊断重复失败: 诊断重复失败: 定义基线、预算与验收口径",
+  "title_nesting_depth": 6,
+  "leaf_goal": "定义基线、预算与验收口径",
+  "baseline": {
+    "B0_environment": "Python3 stdlib; subprocess disabled; workspace-only IO",
+    "B1_artifacts_initial": 0,
+    "B2_failure": {"consecutive_failures": 3, "error_class": "unknown", "artifacts_produced": 0},
+    "B3_success": "produce baseline_budget_acceptance.json + verify.py; verifier runs and passes"
+  },
+  "budget": {
+    "max_rounds": 16,
+    "subprocess_allowed": false,
+    "network_allowed": false,
+    "max_deliverable_files": 4,
+    "max_file_bytes": 65536
+  },
+  "acceptance_criteria": [
+    {"id": "AC1", "check": "baseline_budget_acceptance.json exists and is valid JSON", "expected": true},
+    {"id": "AC2", "check": "JSON has keys baseline,budget,acceptance_criteria,root_cause,verdict", "expected": true},
+    {"id": "AC3", "check": "acceptance_criteria non-empty, each has id/check/expected", "expected": true},
+    {"id": "AC4", "check": "budget.max_rounds == 16", "expected": true},
+    {"id": "AC5", "check": "root_cause non-empty and mentions spec/规格", "expected": true},
+    {"id": "AC6", "check": "verdict in {FIX_RECOMMENDED, ABANDON_RECOMMENDED}", "expected": true},
+    {"id": "AC7", "check": "verify.py exists and self-check prints ALL_CHECKS_PASSED", "expected": true},
+    {"id": "AC8", "check": "workspace artifact count >= 2", "expected": true}
+  ],
+  "root_cause": "规格缺失 (spec-less task): 任务标题为6层自引用嵌套回声，未定义被测对象、指标与成功判据，导致验收器只能抛 unknown；输入不变则重试结果不变，故原样重试无效。",
+  "verdict": "FIX_RECOMMENDED",
+  "recommendation": "上游补齐任务规格（被测对象/指标/判据）后方可入队；规格补齐前拒绝重试。"
+}

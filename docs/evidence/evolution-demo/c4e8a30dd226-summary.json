@@ -1,0 +1,129 @@
+{
+ "goal_id": "goal_4bfb888ee458452a",
+ "problem": "prob_4bda4151ce324c04",
+ "proposal": "prop_d8cd6247d17c4ee0",
+ "candidate": "cand_a62d6e68af4247b2",
+ "evaluation": {
+  "verdict": "INCONCLUSIVE",
+  "final": {
+   "contract_version": "bin-packing/v1",
+   "suite_ref": "selection://algorithm-search.bin-packing",
+   "layer": "selection",
+   "primary_metric": "bins_avg",
+   "primary_value": 32.5,
+   "baseline_value": 32.5,
+   "paired_delta": 0,
+   "hard_constraints": [
+    {
+     "name": "candidate_runs",
+     "passed": true,
+     "detail": "ok"
+    },
+    {
+     "name": "no_sandbox_violation",
+     "passed": true,
+     "detail": "ok"
+    },
+    {
+     "name": "feasibility",
+     "passed": true,
+     "detail": "all items packed within capacity on every problem"
+    },
+    {
+     "name": "runtime",
+     "passed": true,
+     "detail": "per-problem limit 500ms"
+    }
+   ],
+   "trials": [
+    {
+     "task_id": "sel-2000",
+     "seed": 2000,
+     "value": 38,
+     "feasible": true,
+     "runtime_ms": 0.127
+    },
+    {
+     "task_id": "sel-2001",
+     "seed": 2001,
+     "value": 29,
+     "feasible": true,
+     "runtime_ms": 0.101
+    },
+    {
+     "task_id": "sel-2002",
+     "seed": 2002,
+     "value": 31,
+     "feasible": true,
+     "runtime_ms": 0.095
+    },
+    {
+     "task_id": "sel-2003",
+     "seed": 2003,
+     "value": 30,
+     "feasible": true,
+     "runtime_ms": 0.095
+    },
+    {
+     "task_id": "sel-2004",
+     "seed": 2004,
+     "value": 35,
+     "feasible": true,
+     "runtime_ms": 0.101
+    },
+    {
+     "task_id": "sel-2005",
+     "seed": 2005,
+     "value": 32,
+     "feasible": true,
+     "runtime_ms": 0.098
+    },
+    {
+     "task_id": "sel-2006",
+     "seed": 2006,
+     "value": 34,
+     "feasible": true,
+     "runtime_ms": 0.101
+    },
+    {
+     "task_id": "sel-2007",
+     "seed": 2007,
+     "value": 34,
+     "feasible": true,
+     "runtime_ms": 0.1
+    },
+    {
+     "task_id": "sel-2008",
+     "seed": 2008,
+     "value": 34,
+     "feasible": true,
+     "runtime_ms": 0.111
+    },
+    {
+     "task_id": "sel-2009",
+     "seed": 2009,
+     "value": 28,
+     "feasible": true,
+     "runtime_ms": 0.089
+    },
+    {
+     "task_id": "sel-2010",
+     "seed": 2010,
+     "value": 32,
+     "feasible": true,
+     "runtime_ms": 0.094
+    },
+    {
+     "task_id": "sel-2011",
+     "seed": 2011,
+     "value": 33,
+     "feasible": true,
+     "runtime_ms": 0.099
+    }
+   ],
+   "verdict": "INCONCLUSIVE",
+   "reason": "|delta| 0.0000 below pre-registered effect 0.05 on 12 problems; evidence insufficient, direction neither supported nor refuted"
+  }
+ },
+ "at": "2026-09-23T19:41:51.289Z"
+}

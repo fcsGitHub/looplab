@@ -44,6 +44,13 @@ export class EventStore {
    * command that caused this event; `traceId` groups a whole user path.
    */
   static async append(client: PoolClient, input: AppendEventInput): Promise<StoredEvent> {
+    // Serialize appenders per aggregate: two concurrent txs (e.g. an un-awaited
+    // tool report and the next model-call event) would both read MAX+1 and one
+    // would violate the (aggregate, seq) uniqueness. The xact-scoped advisory
+    // lock is released automatically at commit/rollback.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `${input.aggregateType}:${input.aggregateId}`,
+    ]);
     const next = await client.query<{ next: number }>(
       `SELECT COALESCE(MAX(aggregate_seq), -1) + 1 AS next
          FROM events WHERE aggregate_type = $1 AND aggregate_id = $2`,

@@ -76,11 +76,11 @@ export class EvolutionService {
   }
 
   /** Real LLM proposal from a problem + parent source. */
-  async proposeChange(input: { goalId: string; problemId: string; taskpackId: string; allowedPath: string }): Promise<ProposalRecord | null> {
+  async proposeChange(input: { goalId: string; problemId: string; taskpackId: string; allowedPath: string; baselinePath?: string }): Promise<ProposalRecord | null> {
     const problem = (await this.db.query("SELECT * FROM problems WHERE id=$1", [input.problemId])).rows[0];
     if (!problem) return null;
     const baseline = readFileSync(
-      path.join(this.config.dataDir, "taskpacks", input.taskpackId, path.basename(input.allowedPath)), "utf8",
+      path.join(this.config.dataDir, "taskpacks", input.taskpackId, input.baselinePath ?? "baseline.py"), "utf8",
     );
 
     const result = await this.llm.call({
@@ -93,7 +93,7 @@ export class EvolutionService {
       actor: { kind: "optimizer", id: "simple-baseline" },
       messages: [
         { role: "system", content: PROPOSER_SYSTEM },
-        { role: "user", content: `失败问题：${problem.title}\n描述：${problem.description}\n\n父版本源码（${input.allowedPath}）：\n\`\`\`\n${baseline.slice(0, 8000)}\n\`\`\`\n请提出最小补丁。` },
+        { role: "user", content: `失败问题：${problem.title}\n描述：${problem.description}\n\n父版本源码（${input.allowedPath}）：\n\`\`\`\n${baseline.slice(0, 8000)}\n\`\`\`\n请提出最小补丁。注意：父版本是 First-Fit Decreasing；请探索一个有实质差异的放置策略（例如 best-fit、带回退的两阶段策略、或对物品排序的改进），不要复述父版本，否则评测会因零改进而判为证据不足。` },
       ],
     });
     const text = result.message.content ?? "";
@@ -111,7 +111,7 @@ export class EvolutionService {
            expected_effect, min_experiment, risks, rollback, fingerprint)
          VALUES ($1,$2,$3,$4,'{}',$5,$6,$7,$8,$9,$10)
          ON CONFLICT (goal_id, fingerprint) DO NOTHING`,
-        [id, input.problemId, input.goalId, parsed.mechanism ?? "", JSON.stringify([input.allowedPath]),
+        [id, input.problemId, input.goalId, parsed.mechanism ?? "", [input.allowedPath],
           parsed.expected_effect ?? "", parsed.min_experiment ?? "",
           JSON.stringify(parsed.risks ?? []), parsed.rollback ?? "", fingerprint],
       );

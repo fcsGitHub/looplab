@@ -367,11 +367,12 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evolution/propose", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
-    const { problem_id, taskpack_id, allowed_path } = req.body as any;
+    const { problem_id, taskpack_id, allowed_path, baseline_path } = req.body as any;
     const prop = await svc.evolution.proposeChange({
       goalId: (req.params as any).id, problemId: String(problem_id),
       taskpackId: String(taskpack_id ?? "algorithm-search.bin-packing"),
       allowedPath: String(allowed_path ?? "heuristic.py"),
+      baselinePath: baseline_path ? String(baseline_path) : undefined,
     });
     if (!prop) return reply.code(502).send({ error: "proposer produced no usable proposal" });
     return reply.code(202).send(prop);

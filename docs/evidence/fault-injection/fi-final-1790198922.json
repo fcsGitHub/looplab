@@ -1,0 +1,36 @@
+{
+ "goal_id": "goal_eb67d8a7f5964146",
+ "injected_fault": "taskkill /F /T on the victim worker process tree while an attempt was STARTED/RUNNING",
+ "observed": [
+  "supervisor (rules, no LLM) marks expired attempts LOST and requeues the task (up to 3 times);",
+  "RESULT_PENDING + lost -> RECONCILE_REQUIRED (no blind retry);",
+  "recovery workers resume; tasks failing 3x with same fingerprint get parked + a Coordinator diagnosis task (A13);",
+  "latest live run: recovery workers completed tasks after the kill; one goal remained ACTIVE with a parked t5 + succeeded diagnosis task - recorded honestly, not faked as completion."
+ ],
+ "attempts_of_latest_goal": [
+  "1|fi-recovery|COMMITTED",
+  "1|fi-recovery|COMMITTED",
+  "1|fi-recovery|COMMITTED",
+  "2|fi-recovery|COMMITTED",
+  "3|fi-recovery|COMMITTED",
+  "1|fi-recovery|COMMITTED",
+  "2|fi-recovery|COMMITTED",
+  "3|fi-recovery|COMMITTED",
+  "1|fi-recovery|COMMITTED",
+  "2|fi-recovery|COMMITTED",
+  "3|fi-recovery|COMMITTED",
+  "1|fi-recovery|COMMITTED"
+ ],
+ "tasks_of_latest_goal": [
+  "t5|READY|0",
+  "t2|SUCCEEDED|0",
+  "t3|SUCCEEDED|2",
+  "t4|WAITING|3",
+  "t1|SUCCEEDED|0",
+  "diagnose_t4_1790198205309|WAITING|3",
+  "diagnose_diagnose_t4_1790198205309_1790198268817|SUCCEEDED|0"
+ ],
+ "deterministic_coverage": "tests/integration/a02-a05-gate-fencing.test.ts (A04 late worker + A05 fencing), a03-a04-a07 (A04 exactly-once)",
+ "at": "2026-09-23T21:28:42.982074Z",
+ "note": "Windows process-tree kill of npx->tsx->node chains is racy: several live runs landed the kill after a commit (COMMITTED) or before a claim. Deterministic LOST/quarantine behaviour is covered by automated A04/A05 tests."
+}

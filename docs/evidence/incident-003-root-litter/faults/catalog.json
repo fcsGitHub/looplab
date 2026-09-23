@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "parameter_contract": {
+    "fault": "string, one of the ids below",
+    "intensity": "float in [0.0, 1.0], fraction of full fault strength",
+    "duration": "float seconds the fault stays active",
+    "target": "string, SUT endpoint or service name"
+  },
+  "faults": [
+    {
+      "id": "latency",
+      "class": "network",
+      "description": "Adds request latency proportional to intensity.",
+      "toxiproxy": { "type": "latency", "attribute": "latency", "max_ms": 2000 },
+      "chaos_mesh": null,
+      "harness": { "kind": "sleep", "max_sleep_s": 0.20 },
+      "expect": { "latency_p95_increase": true, "error_rate_increase": true }
+    },
+    {
+      "id": "packet_loss",
+      "class": "network",
+      "description": "Drops a fraction of requests equal to intensity.",
+      "toxiproxy": { "type": "timeout", "attribute": "timeout", "max_ms": 0 },
+      "chaos_mesh": null,
+      "harness": { "kind": "drop", "max_drop_prob": 0.9 },
+      "expect": { "error_rate_increase": true, "throughput_decrease": true }
+    },
+    {
+      "id": "cpu_stress",
+      "class": "resource",
+      "description": "Burns CPU budget per request proportional to intensity.",
+      "toxiproxy": null,
+      "chaos_mesh": { "kind": "StressChaos", "mode": "cpu", "max_workers": 4 },
+      "harness": { "kind": "cpu_burn", "max_burn_ms": 40 },
+      "expect": { "latency_p95_increase": true, "throughput_decrease": true }
+    },
+    {
+      "id": "memory_stress",
+      "class": "resource",
+      "description": "Allocates memory pressure per request proportional to intensity.",
+      "toxiproxy": null,
+      "chaos_mesh": { "kind": "StressChaos", "mode": "memory", "max_size_mb": 256 },
+      "harness": { "kind": "mem_pressure", "max_alloc_mb": 32 },
+      "expect": { "latency_p95_increase": true, "error_rate_increase": true }
+    },
+    {
+      "id": "pod_kill",
+      "class": "availability",
+      "description": "Takes the SUT instance down for the whole fault window.",
+      "toxiproxy": null,
+      "chaos_mesh": { "kind": "PodChaos", "action": "pod-kill" },
+      "harness": { "kind": "down" },
+      "expect": { "error_rate_increase": true, "throughput_decrease": true }
+    },
+    {
+      "id": "dependency_error",
+      "class": "dependency",
+      "description": "Downstream dependency raises errors for a fraction of calls.",
+      "toxiproxy": { "type": "reset_peer", "attribute": "timeout", "max_ms": 0 },
+      "chaos_mesh": null,
+      "harness": { "kind": "dep_error", "max_error_prob": 0.9 },
+      "expect": { "error_rate_increase": true }
+    }
+  ]
+}
