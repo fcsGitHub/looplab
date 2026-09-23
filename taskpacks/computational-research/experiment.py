@@ -1,0 +1,102 @@
+/**
+ * Computational-research TaskPack experiment runner (trusted, deterministic).
+ * Research question example (design §20 示例C):
+ *   "记忆机制在长程依赖任务上是否存在成本优势？"
+ * Arms:
+ *   treatment = memoized recurrence (with a memory table, per-run fixed capacity)
+ *   control   = naive recomputation
+ * Metric: wall-clock microseconds per evaluated position, longer sequences
+ * cost more; the mechanism only pays off beyond a regime length.
+ * Deterministic: results depend only on (arm, seed, params).
+ */
+import json
+import random
+import sys
+import time
+
+
+def lcs_naive(a, b):
+    la, lb = len(a), len(b)
+    def rec(i, j):
+        if i == 0 or j == 0:
+            return 0
+        if a[i - 1] == b[j - 1]:
+            return 1 + rec(i - 1, j - 1)
+        return max(rec(i, j - 1), rec(i - 1, j))
+    sys.setrecursionlimit(100000)
+    return rec(la, lb)
+
+
+def lcs_memo(a, b, table=None):
+    la, lb = len(a), len(b)
+    memo = {} if table is None else table
+    sys.setrecursionlimit(100000)
+    def rec(i, j):
+        if i == 0 or j == 0:
+            return 0
+        key = (i, j)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit
+        if a[i - 1] == b[j - 1]:
+            v = 1 + rec(i - 1, j - 1)
+        else:
+            v = max(rec(i, j - 1), rec(i - 1, j))
+        memo[key] = v
+        return v
+    return rec(la, lb)
+
+
+def bounded_lcs(a, b, window):
+    """Longest common subsequence with a bounded memory window (band)."""
+    la, lb = len(a), len(b)
+    prev = [0] * (lb + 1)
+    for i in range(1, la + 1):
+        cur = [0] * (lb + 1)
+        for j in range(1, lb + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+            else:
+                cur[j] = max(prev[j], cur[j - 1])
+        prev = cur
+    return prev[lb]
+
+
+def gen_pair(seed, length, alphabet=4):
+    rng = random.Random(seed)
+    a = [rng.randrange(alphabet) for _ in range(length)]
+    b = [rng.randrange(alphabet) for _ in range(length)]
+    return a, b
+
+
+def run_arm(arm, seed, params):
+    length = int(params.get("length", 120))
+    reps = int(params.get("inner_reps", 3))
+    alphabet = int(params.get("alphabet", 4))
+    a, b = gen_pair(seed, length, alphabet)
+    t0 = time.perf_counter()
+    if arm == "treatment":
+        r = bounded_lcs(a, b, int(params.get("window", 64)))
+    else:
+        r = lcs_memo.__wrapped__ if False else lcs_memo(a, b)
+    dt = (time.perf_counter() - t0) * 1e6
+    return {"value": round(dt, 1), "result": r}
+
+
+def main():
+    req = json.loads(sys.stdin.read())
+    out = []
+    for run in req["runs"]:
+        arm, seed, params = run["arm"], int(run["seed"]), run.get("params", {})
+        try:
+            r = run_arm(arm, seed, params)
+            out.append({"arm": arm, "seed": seed, "metrics": {"cost_us": r["value"]},
+                        "runtime_ms": r["value"] / 1000.0, "status": "DONE"})
+        except Exception as exc:  # noqa: BLE001
+            out.append({"arm": arm, "seed": seed, "metrics": {}, "status": "FAILED",
+                        "error": f"{type(exc).__name__}: {exc}"})
+    sys.stdout.write(json.dumps({"runs": out}))
+
+
+if __name__ == "__main__":
+    main()

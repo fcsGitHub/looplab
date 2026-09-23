@@ -71,7 +71,7 @@ export class Scheduler {
         `SELECT t.*, g.state AS goal_state, g.current_version AS goal_version
            FROM tasks t
            JOIN goals g ON g.id = t.goal_id
-          WHERE t.state = 'READY'
+          WHERE (t.state = 'READY' OR (t.state = 'FAILED' AND t.failure_count < 3))
             AND g.state = 'ACTIVE'
             AND NOT EXISTS (
               SELECT 1 FROM tasks d

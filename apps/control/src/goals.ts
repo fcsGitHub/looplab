@@ -474,7 +474,34 @@ export class GoalService {
     const newTaskState = task.state === "CANCELLED" ? "CANCELLED"
       : outcome === "SUCCEEDED" ? "SUCCEEDED" : "FAILED";
     if (canTransition(TASK_TRANSITIONS, task.state, newTaskState)) {
-      await client.query("UPDATE tasks SET state=$2, updated_at=now() WHERE id=$1", [task.id, newTaskState]);
+      const fingerprint = outcome === "FAILED"
+        ? `attempt_error:${task.node_key}:${attempt.error_class ?? "unknown"}`
+        : task.error_fingerprint;
+      await client.query(
+        `UPDATE tasks SET state=$2, updated_at=now(),
+           failure_count = CASE WHEN $2='FAILED' THEN failure_count+1 ELSE failure_count END,
+           error_fingerprint = COALESCE($3, error_fingerprint)
+         WHERE id=$1`,
+        [task.id, newTaskState, fingerprint ?? null],
+      );
+      // A13: 3 identical fingerprints -> park the task and dispatch diagnosis
+      if (newTaskState === "FAILED" && task.failure_count + 1 >= 3) {
+        await client.query("UPDATE tasks SET state='WAITING' WHERE id=$1", [task.id]);
+        const diagId = newId("task");
+        await client.query(
+          `INSERT INTO tasks (id, graph_version_id, goal_id, node_key, role, kind, title, instruction, risk_class, state)
+           VALUES ($1,$2,$3,$4,'Coordinator','integration',$5,$6,'low','READY')`,
+          [diagId, task.graph_version_id, attempt.goal_id,
+            `diagnose_${task.node_key}_${Date.now()}`,
+            `诊断重复失败: ${task.title}`,
+            `任务「${task.title}」已以相同错误失败 ${task.failure_count + 1} 次（${attempt.error_class ?? "unknown"}）。请分析根因并产出修复建议或放弃建议。禁止原样重试。`],
+        );
+        await EventStore.append(client, {
+          aggregateType: "task", aggregateId: task.id, eventType: "task.retry_loop_diagnosed",
+          goalId: attempt.goal_id, actor: { kind: "system", id: "supervisor" },
+          payload: { failure_count: task.failure_count + 1, diagnosis_task: diagId },
+        });
+      }
     }
     await EventStore.append(client, {
       aggregateType: "task", aggregateId: task.id, eventType: newTaskState === "SUCCEEDED" ? "task.succeeded" : "task.failed",

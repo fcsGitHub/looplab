@@ -268,28 +268,30 @@ export class EvolutionService {
   }
 
   /** Canary regression watch: selection-suite regression flips the pointer back. */
-  async checkCanaryRegression(scope: string, taskpackId: string): Promise<{ rolledBack: boolean; reason: string }> {
+  async checkCanaryRegression(scope: string, _taskpackId: string): Promise<{ rolledBack: boolean; reason: string }> {
     const pointer = await this.releases.currentPointer(scope);
     if (!pointer) return { rolledBack: false, reason: "no pointer" };
     const rel = (await this.db.query("SELECT * FROM releases WHERE id=$1", [pointer.release_id])).rows[0];
     if (!rel || rel.kind !== "canary") return { rolledBack: false, reason: "pointer is not a canary" };
-    const baselineEval = (await this.db.query(
-      `SELECT results FROM evaluations WHERE layer='selection' ORDER BY created_at ASC LIMIT 1`,
-    )).rows[0];
     const candEval = (await this.db.query(
       `SELECT results FROM evaluations WHERE candidate_id=$1 AND layer='selection' ORDER BY created_at DESC LIMIT 1`,
       [pointer.candidate_id],
     )).rows[0];
-    if (!baselineEval || !candEval) return { rolledBack: false, reason: "insufficient eval data" };
-    const delta = Number(candEval.results.primary_value) - Number(baselineEval.results.primary_value);
-    if (delta < -Math.abs(Number(baselineEval.results.max_regression_epsilon ?? 0.02))) {
+    if (!candEval) return { rolledBack: false, reason: "insufficient eval data" };
+    const r = candEval.results;
+    const baselineValue = Number(r.baseline_value);
+    const primaryValue = Number(r.primary_value);
+    const epsilon = Math.abs(Number(r.max_regression_epsilon ?? 0.02));
+    // bins_avg is a minimize metric: primary above baseline = regression
+    const regression = primaryValue - baselineValue;
+    if (regression > epsilon) {
       await this.releases.rollback({
         scope, releaseId: pointer.release_id,
-        reason: `canary regression: primary delta ${delta.toFixed(4)} beyond epsilon`,
+        reason: `canary regression: primary ${primaryValue.toFixed(4)} vs baseline ${baselineValue.toFixed(4)} (regression ${regression.toFixed(4)} > epsilon ${epsilon})`,
         actor: "canary-watch",
       });
-      return { rolledBack: true, reason: `regression ${delta.toFixed(4)}` };
+      return { rolledBack: true, reason: `regression ${regression.toFixed(4)}` };
     }
-    return { rolledBack: false, reason: `delta ${delta.toFixed(4)} within epsilon` };
+    return { rolledBack: false, reason: `delta ${regression.toFixed(4)} within epsilon` };
   }
 }

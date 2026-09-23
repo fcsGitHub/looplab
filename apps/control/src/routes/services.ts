@@ -11,6 +11,8 @@ import type { ObjectStore } from "../objectstore.js";
 import type { EvolutionService } from "../evolution.js";
 import type { EvalBroker } from "../evalbroker.js";
 import type { ReleaseService } from "../releases.js";
+import type { ResearchService } from "../research.js";
+import type { EvidenceService } from "../evidence.js";
 
 export interface ControlServices {
   db: Db;
@@ -24,5 +26,7 @@ export interface ControlServices {
   evolution: EvolutionService;
   evalBroker: EvalBroker;
   releases: ReleaseService;
+  research: ResearchService;
+  evidence: EvidenceService;
   orchestrator: Orchestrator;
 }

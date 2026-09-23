@@ -1,5 +1,7 @@
 // All HTTP routes. Handlers stay thin; logic lives in services.
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { EventStore } from "../eventstore.js";
 import { AuthService, SESSION_COOKIE } from "../auth.js";
@@ -257,6 +259,103 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     reply.header("content-type", row.media_type);
     reply.header("x-artifact-digest", row.digest);
     return buf;
+  });
+
+  // ---- research flow (hypothesis cards, frozen protocols, analysis) ---------
+  app.post("/v1/goals/:id/hypotheses", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    const id = await svc.research.createHypothesis({
+      goalId: (req.params as any).id, statement: String(b.statement ?? ""),
+      mechanism: b.mechanism, applicability: b.applicability, keyVariable: b.key_variable,
+      falsifier: b.falsifier, primaryMetric: b.primary_metric, minEffect: b.min_effect,
+      nextStep: b.next_step, userId: req.user!.id,
+    });
+    return reply.code(201).send({ id });
+  });
+
+  app.get("/v1/goals/:id/hypotheses", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    return { hypotheses: (await svc.db.query("SELECT * FROM hypotheses WHERE goal_id=$1 ORDER BY created_at DESC", [(req.params as any).id])).rows };
+  });
+
+  app.post("/v1/hypotheses/:id/protocol", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    try {
+      const planId = await svc.research.freezeProtocol({
+        hypothesisId: (req.params as any).id,
+        arms: b.arms, repetitions: Number(b.repetitions ?? 3),
+        seeds: (b.seeds ?? []).map(Number),
+        analysisPlan: {
+          metric: String(b.analysis_plan?.metric ?? "cost_us"),
+          minEffect: Number(b.analysis_plan?.min_effect ?? 0),
+          alpha: Number(b.analysis_plan?.alpha ?? 0.05),
+          minRepetitions: Number(b.analysis_plan?.min_repetitions ?? 5),
+        },
+        runnerRef: String(b.runner_ref ?? "taskpacks/computational-research/experiment.py"),
+      });
+      return reply.code(201).send({ plan_id: planId });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/v1/plans/:id/run", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    // execute the frozen protocol with the real deterministic runner
+    const planId = (req.params as any).id;
+    const plan = (await svc.db.query("SELECT * FROM experiment_plans WHERE id=$1", [planId])).rows[0];
+    if (!plan) return reply.code(404).send({ error: "plan not found" });
+    const protocol = plan.protocol;
+    const runs = (await svc.db.query(
+      "SELECT id, arm, seed, params FROM experiment_runs WHERE plan_id=$1 AND status='PENDING'", [planId],
+    )).rows;
+    if (!runs.length) return reply.code(409).send({ error: "no pending runs for this plan" });
+    const reqBody = { runs: runs.map((r: any) => ({ arm: r.arm, seed: r.seed, params: r.params })) };
+    const runnerScript = path.resolve(svc.config.dataDir, "taskpacks", "computational-research", "experiment.py");
+    const proc = spawnSync("python", [runnerScript], {
+      input: JSON.stringify(reqBody), encoding: "utf8", timeout: 120_000,
+      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "C:\\Windows", PYTHONIOENCODING: "utf-8" },
+    });
+    if (proc.status !== 0) return reply.code(500).send({ error: (proc.stderr ?? "runner failed").slice(0, 300) });
+    const out = JSON.parse(proc.stdout);
+    for (const r of out.runs as any[]) {
+      const match = runs.find((x: any) => x.arm === r.arm && Number(x.seed) === Number(r.seed));
+      if (!match) continue;
+      await svc.db.query(
+        `UPDATE experiment_runs SET metrics=$2, runtime_ms=$3, status=$4 WHERE id=$1`,
+        [match.id, JSON.stringify(r.metrics ?? {}), Number(r.runtime_ms ?? 0), r.status === "DONE" ? "DONE" : "FAILED"],
+      );
+    }
+    const done = Number((await svc.db.query("SELECT count(*)::int AS n FROM experiment_runs WHERE plan_id=$1 AND status='DONE'", [planId])).rows[0]?.n ?? 0);
+    return { plan_id: planId, executed: out.runs.length, done_total: done };
+  });
+
+  app.post("/v1/plans/:id/analyze", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const planId = (req.params as any).id;
+    const analysis = await svc.research.analyze(planId);
+    await svc.research.recordOutcome(planId, analysis.verdict, analysis.detail, analysis.stats);
+    return analysis;
+  });
+
+  app.post("/v1/goals/:id/evidence/verify", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    return svc.evidence.verifyReferences((req.params as any).id);
+  });
+
+  app.post("/v1/goals/:id/claims", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    const id = `clm_${randomBytes(6).toString("hex")}`;
+    await svc.db.query(
+      `INSERT INTO claims (id, goal_id, text, stance, scope, kind, evidence_refs)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [id, (req.params as any).id, String(b.text ?? ""), String(b.stance ?? "证据不足"),
+        String(b.scope ?? ""), String(b.kind ?? "inference"), JSON.stringify(b.evidence_refs ?? [])],
+    );
+    return reply.code(201).send({ id });
   });
 
   // ---- evolution operations (HTTP surface for the evolution loop) ----------
