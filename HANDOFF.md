@@ -72,8 +72,17 @@
    SUCCEEDED，实验任务摘要确认 import 前驱产物跑通 3/3 用例。
    测试：`tests/integration/a21-propagation.test.ts`（2 项）。
 
-1. verify/审查任务偶发因模型不按 RESULT 格式收尾而失败重试（消耗预算）；
-   已通过「临近步数上限强制收尾」缓解，仍偶发。
+1. **已关闭（第九轮）**：RESULT 收尾失败不再浪费整个 attempt——
+   结算策略抽为两个运行时共享的 `result-synthesis.ts`：(a) 可解析 RESULT
+   原样透传；(b) 做了工作但格式不可解析（重问后仍失败）→ SUCCEEDED +
+   诚实 `result_format` 信号（passed=false，摘要取最后陈述），交付物由
+   确定性工作区快照兜底，不再 verification=null 也不整 attempt 作废；
+   (c) 无任何文本 → FAILED（重试合理，未产出可采信内容）。pi 运行时补齐
+   「临近步数上限强制收尾」对齐（末轮禁工具 + 结构化重问，与 loop 一致）；
+   无文本时不再浪费一次重问调用。生产库取证：407 COMMITTED / 0 FAILED
+   attempt，重试浪费主要来自真实 verdict 失败与 soak 注入；本修复消除的是
+   格式性失败这一残余浪费类别。测试：`tests/unit/result-synthesis.test.ts`（7）、
+   `tests/unit/runtime-settlement.test.ts`（4，双运行时确定性结算）。
 2. **已关闭（第八轮）**：SSE「服务重启中的重连」路径落地验证——
    A23 用应用级真实重启（旧实例被 closeAllConnections 杀停、socket 中断、
    内存总线全丢；新实例对同一 DB 打开）复现进程死亡：客户端持旧游标重连后，

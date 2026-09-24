@@ -22,6 +22,7 @@ import { CapabilityGateway, sha256 } from "./capability-gateway.js";
 import { PiLoopRuntime } from "./pi-runtime.js";
 import { materializePropagated } from "./propagate.js";
 import { snapshotWorkspaceArtifacts } from "./snapshot.js";
+import { FORCED_WRAPUP_INSTRUCTION, isForcedWrapUpTurn, settleRunResult, type Settlement } from "./result-synthesis.js";
 import { guessMediaType, parseResult, safeJoin, type LoopOutcome } from "./agent-loop.js";
 
 // re-exported so the daemon keeps a single import surface
@@ -99,6 +100,10 @@ export class PiAttemptExecutor {
     // budget-exceeded and hard transport failures surface as this error class
     let budgetExhausted = false;
     let transportFailures = 0;
+    // successful model calls so far — drives the forced wrap-up on the last
+    // allowed turn (parity with the loop runtime's near-limit behavior)
+    let completedTurns = 0;
+    const maxTurns = this.spec.resource_limits.max_steps;
 
     const runtime = new PiLoopRuntime({
       model: { provider: "deepseek", id: this.spec.model.model },
@@ -112,12 +117,15 @@ export class PiAttemptExecutor {
         `结束时，最后一条消息以 RESULT 开头并附单行 JSON：`,
         `{"summary":"结果摘要（含关键数字/证据）","outcome":"SUCCEEDED"或"FAILED","verification":{"kind":"验证方式","passed":true或false,"detail":"验证细节"},"files":["工作区中作为交付物的文件"]}`,
       ].join("\n\n"),
-      maxTurns: this.spec.resource_limits.max_steps,
+      maxTurns,
       llmComplete: async (req) => {
         if (this.lastHeartbeat.action === "abort") throw new Error(`aborted: ${this.lastHeartbeat.reason ?? "user cancel"}`);
+        const forcedWrapUp = isForcedWrapUpTurn(completedTurns, maxTurns);
         const res = await this.client.llm(this.spec.attempt_id, this.workerId, this.spec.lease.epoch, {
-          messages: req.messages,
-          tools: req.tools.length > 0 ? req.tools : undefined,
+          messages: forcedWrapUp
+            ? [...req.messages, { role: "user" as const, content: FORCED_WRAPUP_INSTRUCTION }]
+            : req.messages,
+          tools: forcedWrapUp ? undefined : (req.tools.length > 0 ? req.tools : undefined),
           max_tokens: this.spec.model.max_tokens,
           temperature: this.spec.model.temperature,
         });
@@ -133,6 +141,7 @@ export class PiAttemptExecutor {
           return { text: "", toolCalls: [], usage: { prompt_tokens: 0, completion_tokens: 0 }, model: this.spec.model.model };
         }
         transportFailures = 0;
+        completedTurns++;
         usage.model_calls++;
         usage.prompt_tokens += res.json.usage?.prompt_tokens ?? 0;
         usage.completion_tokens += res.json.usage?.completion_tokens ?? 0;
@@ -266,11 +275,12 @@ export class PiAttemptExecutor {
       }
     }
 
-    const outcome: "SUCCEEDED" | "FAILED" = parsed?.outcome ?? (finalText ? "SUCCEEDED" : "FAILED");
+    // abort was already handled above (early return); settle honestly here
+    const settlement: Settlement = settleRunResult({ parsed, finalText });
     return {
-      outcome,
-      summary: parsed?.summary ?? finalText?.slice(0, 800) ?? "无输出",
-      verification: parsed?.verification ?? null,
+      outcome: settlement.outcome,
+      summary: settlement.summary,
+      verification: settlement.verification,
       artifacts: [...byName.values()],
       usage: { ...usage, unknown_settlement: false },
       steps,

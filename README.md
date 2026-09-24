@@ -62,7 +62,7 @@ WORKER_ID=dev-01 npx tsx workers/agent-worker/src/index.ts
 ## 测试
 
 ```bash
-npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18–A23；A17 长跑除外）
+npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18–A24；A17 长跑除外）
 DEEPSEEK_API_KEY=sk-xxx npx vitest run tests/contract/deepseek-smoke.test.ts  # 真实模型烟测
 npx playwright test                             # 真实浏览器端到端（需控制服务+worker 运行中）
 npx tsx tests/soak/soak.ts --duration 10m       # 浸泡测试（72h 用 --duration 72h）

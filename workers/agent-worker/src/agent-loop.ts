@@ -6,6 +6,7 @@
 import type { RunSpec } from "@looplab/contracts";
 import type { ControlClient } from "./control-client.js";
 import { CapabilityGateway, sha256 } from "./capability-gateway.js";
+import { FORCED_WRAPUP_INSTRUCTION, isForcedWrapUpTurn, settleRunResult, type Settlement } from "./result-synthesis.js";
 import { materializePropagated } from "./propagate.js";
 import { snapshotWorkspaceArtifacts } from "./snapshot.js";
 
@@ -134,10 +135,10 @@ export class AgentLoop {
       }
 
       // near the step limit: force an honest wrap-up instead of "no output"
-      const forceWrapUp = steps >= this.spec.resource_limits.max_steps - 1;
+      const forceWrapUp = isForcedWrapUpTurn(steps, this.spec.resource_limits.max_steps);
       const res = await this.client.llm(this.spec.attempt_id, this.workerId, this.spec.lease.epoch, {
         messages: forceWrapUp
-          ? [...messages, { role: "user" as const, content: "[系统] 已到步数上限：禁止再调用工具，立即基于已知信息按格式输出 RESULT（ outcome 如实）。" }]
+          ? [...messages, { role: "user" as const, content: FORCED_WRAPUP_INSTRUCTION }]
           : messages,
         tools: forceWrapUp ? undefined : toolDefs,
         max_tokens: this.spec.model.max_tokens,
@@ -271,11 +272,17 @@ export class AgentLoop {
     }
 
     const aborted = this.abortRequested;
-    const outcome: "SUCCEEDED" | "FAILED" = aborted ? "FAILED" : (parsed?.outcome ?? (finalText ? "SUCCEEDED" : "FAILED"));
+    const settlement: Settlement = aborted
+      ? {
+          outcome: "FAILED",
+          summary: `已中止：${this.lastHeartbeat.reason ?? "user cancel"}`,
+          verification: { kind: "runtime_limit", passed: false, detail: "attempt aborted by user command" },
+        }
+      : settleRunResult({ parsed, finalText });
     return {
-      outcome,
-      summary: parsed?.summary ?? finalText?.slice(0, 800) ?? (aborted ? `已中止：${this.lastHeartbeat.reason}` : "无输出"),
-      verification: parsed?.verification ?? null,
+      outcome: settlement.outcome,
+      summary: settlement.summary,
+      verification: settlement.verification,
       artifacts: [...byName.values()],
       usage: { ...usage, unknown_settlement: false },
       steps,
