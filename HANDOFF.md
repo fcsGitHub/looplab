@@ -36,10 +36,10 @@
 |---|---|---|
 | A17 72h soak | **部分执行** | 已跑 5 分钟有界浸泡（73 周期 / 0 错误 / 4 次故障注入，报告 `docs/evidence/soak/`）；72h 全程未执行，脚本已备好（`--duration 72h`），不能声称通过 |
 | 故障注入（杀 worker） | **已执行（带保留）** | 实测击杀处于 RUNNING 的 victim；Windows 进程树击杀存在竞态（数次落在提交之后）。确定性覆盖见 A04/A05 自动化测试；账本取证报告 `docs/evidence/fault-injection/` |
-| Pi（@earendil-works）集成 | **生产可选运行时已验证**（第四/五轮） | 锁定 0.87.1；6 项契约测试 + 真实模型烟测；`RUNTIME=pi` 启动 worker 即用 PiAttemptExecutor 驱动完整 attempt（领取/计量/门控/检查点/RESULT/提交/3-strike 诊断全链路真实跑通，检查点带 runtime=pi-agent-core 标记）；默认运行时仍为 loop |
+| Pi（@earendil-works）集成 | **生产默认运行时（第九/十五轮）** | 锁定 0.87.1；6 项契约测试 + 真实模型烟测 + 结算对齐（第十四轮）；P15 起 `RUNTIME` 默认 `pi`（`RUNTIME=loop` 显式回退）。默认路径真实 e2e：新目标 t1→t3 全 SUCCEEDED（44 checkpoint 全带 runtime=pi-agent-core），verify 节点 3 次诚实失败后编排器自派 diagnose 任务并 SUCCEEDED——自诊断循环在默认运行时全链工作 |
 | OS 级 worker 沙箱（容器/Job Object） | 延期 | 当前为语言级审计钩子 + 目录/路径限界；威胁模型已登记边界 |
 | A17 72h soak | **部分执行（扩大）** | 2026-09-25 追加 20 分钟有界浸泡（预算护栏语义修正为单次运行增量 + 请求超时 + 逐周期日志后执行）；72h 全程仍未执行，不能声称通过 |
-| GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 仍为后续 |
+| GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 结论（第十五轮调查）：**ShinkaEvolve 无官方可装包**（PyPI 无 `shinkaevolve`；`shinka` 0.3.0 为无关图像放大包，名称撞车）——接入须 vendor 研究代码，超出锁定依赖边界，诚实搁置；**OpenEvolve 可装**（`openevolve==0.3.2`，PyPI 核验）——第三后端的具体候选，接入方案与 GEPA 相同（后端子进程经计量代理反射、candidate_runner 沙箱评分、预算桥接 max_evaluations→max_metric_calls），作为独立后续轮次 |
 | 参数训练（RL/微调） | 关闭 | 设计允许，非本期范围 |
 
 ## 事故账本

@@ -10,7 +10,9 @@ docker start looplab-pg   # 或 docker run … 见 README
 npx tsx apps/control/src/index.ts          # 监听 :8080
 
 # worker（可多实例，命名区分）
+# 默认运行时为 Pi（@earendil-works）；RUNTIME=loop 显式回退到内置循环
 $env:WORKER_ID="dev-01"; npx tsx workers/agent-worker/src/index.ts
+$env:RUNTIME="loop"; npx tsx workers/agent-worker/src/index.ts   # 回退
 
 # 优化器后端 venv（元演进 epoch 试炼所需，一次性）
 python -m venv .venv-gepa; .venv-gepa/Scripts/pip install gepa==0.1.4

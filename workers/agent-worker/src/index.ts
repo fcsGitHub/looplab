@@ -10,8 +10,11 @@ import { AgentLoop } from "./agent-loop.js";
 import { PiAttemptExecutor } from "./pi-executor.js";
 
 // runtime selection: the port contract (contracts/runtime.ts) makes the
-// adapter swappable; default stays the built-in loop runtime
-const RUNTIME = process.env.RUNTIME ?? "loop";
+// adapter swappable. Pi (@earendil-works) is the production default since
+// P15 — it passed the contract tests first (P9), a real-model smoke, and
+// live production verification (P10); settlement parity landed in P14.
+// RUNTIME=loop explicitly selects the built-in loop runtime (rollback path).
+const RUNTIME = process.env.RUNTIME ?? "pi";
 
 const CONTROL_URL = process.env.CONTROL_URL ?? "http://localhost:8080";
 const WORKER_ID = process.env.WORKER_ID ?? `sandbox-${randomBytes(3).toString("hex")}`;
