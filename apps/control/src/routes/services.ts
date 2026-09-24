@@ -13,6 +13,7 @@ import type { EvalBroker } from "../evalbroker.js";
 import type { ReleaseService } from "../releases.js";
 import type { ResearchService } from "../research.js";
 import type { EvidenceService } from "../evidence.js";
+import type { OptimizerService } from "../optimizer.js";
 
 export interface ControlServices {
   db: Db;
@@ -28,5 +29,6 @@ export interface ControlServices {
   releases: ReleaseService;
   research: ResearchService;
   evidence: EvidenceService;
+  optimizer: OptimizerService;
   orchestrator: Orchestrator;
 }

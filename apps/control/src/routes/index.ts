@@ -7,6 +7,7 @@ import { EventStore } from "../eventstore.js";
 import { AuthService, SESSION_COOKIE } from "../auth.js";
 import { BudgetExceededError } from "../budget.js";
 import { FencingError } from "../attempts.js";
+import { OptimizerAuthError, OptimizerBudgetExceededError } from "../optimizer.js";
 import { ReleaseConflictError, ReleaseBlockedError } from "../releases.js";
 import type { ControlServices } from "./services.js";
 
@@ -420,6 +421,117 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
       String(taskpack_id ?? "algorithm-search.bin-packing"),
     );
     return res;
+  });
+
+  // ---- optimizer port (design §5.3, §6.8) ----------------------------------
+  // Session-authenticated management surface. The backend process itself
+  // authenticates with the run token issued by createRun; it never sees the
+  // model key and can only reach the metered LLM proxy + complete.
+  app.post("/v1/goals/:id/optimizer/runs", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    try {
+      const res = await svc.optimizer.createRun({
+        goalId: (req.params as any).id,
+        backend: String(b.backend ?? "gepa@0.1.4"),
+        mode: b.mode === "epoch_trial" ? "epoch_trial" : "active",
+        maxMetricCalls: Number(b.max_metric_calls ?? 60),
+        maxLlmCostUsd: Number(b.max_llm_cost_usd ?? 0.5),
+        reflection: b.reflection === "scripted" ? "scripted" : "gateway",
+        gatewayUrl: `${req.protocol}://${req.headers.host}/v1/optimizer/llm`,
+      });
+      return reply.code(201).send(res);
+    } catch (err) {
+      if (err instanceof BudgetExceededError) return reply.code(402).send({ error: err.message });
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/v1/goals/:id/optimizer/runs", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const runs = await svc.optimizer.listRuns((req.params as any).id);
+    // tokens are hash-stored; nothing secret is ever returned
+    return { runs: runs.map(({ manifest, ...rest }) => ({ ...rest, reflection: manifest?.reflection })) };
+  });
+
+  app.post("/v1/goals/:id/optimizer/run-round", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    try {
+      const res = await svc.optimizer.runBackendRound({
+        goalId: (req.params as any).id,
+        backend: String(b.backend ?? "gepa@0.1.4"),
+        mode: b.mode === "epoch_trial" ? "epoch_trial" : "active",
+        maxMetricCalls: Number(b.max_metric_calls ?? 60),
+        maxLlmCostUsd: Number(b.max_llm_cost_usd ?? 0.5),
+        reflection: b.reflection === "scripted" ? "scripted" : "gateway",
+        baseUrl: `${req.protocol}://${req.headers.host}`,
+        timeoutMs: b.timeout_ms ? Number(b.timeout_ms) : undefined,
+      });
+      return reply.code(202).send(res);
+    } catch (err) {
+      if (err instanceof BudgetExceededError) return reply.code(402).send({ error: err.message });
+      return reply.code(502).send({ error: err instanceof Error ? err.message.slice(0, 400) : String(err) });
+    }
+  });
+
+  app.post("/v1/optimizer/llm", async (req, reply) => {
+    // token-authenticated metered proxy for optimizer reflection calls
+    const authz = String(req.headers.authorization ?? "");
+    const token = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+    if (!token) return reply.code(401).send({ error: "optimizer run token required" });
+    const b = req.body as any;
+    try {
+      const res = await svc.optimizer.meteredLlm({
+        token,
+        callSeq: Number(b.call_seq ?? 0),
+        messages: Array.isArray(b.messages) ? b.messages : [],
+        maxTokens: b.max_tokens ? Number(b.max_tokens) : undefined,
+        temperature: b.temperature ?? undefined,
+      });
+      return res;
+    } catch (err) {
+      if (err instanceof BudgetExceededError) return reply.code(402).send({ error: err.message });
+      if (err instanceof OptimizerAuthError) return reply.code(401).send({ error: err.message });
+      return reply.code(502).send({ error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
+    }
+  });
+
+  app.post("/v1/optimizer/runs/:id/complete", async (req, reply) => {
+    const authz = String(req.headers.authorization ?? "");
+    const token = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+    if (!token) return reply.code(401).send({ error: "optimizer run token required" });
+    const b = req.body as any;
+    try {
+      const res = await svc.optimizer.completeRun({
+        token,
+        payload: { proposals: b.proposals ?? [], usage: b.usage, stopped_reason: b.stopped_reason },
+      });
+      return res;
+    } catch (err) {
+      if (err instanceof OptimizerAuthError) return reply.code(401).send({ error: err.message });
+      return reply.code(400).send({ error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
+    }
+  });
+
+  app.get("/v1/meta/epoch", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    return { epoch: await svc.optimizer.currentEpoch() };
+  });
+
+  app.post("/v1/meta/epoch/settle", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const b = req.body as any;
+    try {
+      return await svc.optimizer.settleEpochTrial({
+        incumbent: String(b.incumbent), challenger: String(b.challenger),
+        incumbentImprovement: Number(b.incumbent_improvement ?? 0),
+        challengerImprovement: Number(b.challenger_improvement ?? 0),
+        minMargin: Number(b.min_margin ?? 0.05),
+      });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ---- approvals -------------------------------------------------------------------

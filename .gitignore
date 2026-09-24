@@ -14,3 +14,6 @@ keys.txt
 config/.env.local
 sealed/
 .playwright-mcp/
+
+# optimizer backend venv
+.venv-gepa/

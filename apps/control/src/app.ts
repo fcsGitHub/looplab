@@ -21,6 +21,7 @@ import { ReleaseService } from "./releases.js";
 import { Orchestrator } from "./orchestrator.js";
 import { ResearchService } from "./research.js";
 import { EvidenceService } from "./evidence.js";
+import { OptimizerService } from "./optimizer.js";
 import { ObjectStore } from "./objectstore.js";
 import { registerRoutes } from "./routes/index.js";
 import type { ControlServices } from "./routes/services.js";
@@ -74,12 +75,13 @@ export async function buildApp(configOverride: Partial<Config> = {}) {
   const releases = new ReleaseService(db);
   const research = new ResearchService(db);
   const evidence = new EvidenceService(db);
+  const optimizer = new OptimizerService(db, config);
   const orchestrator = new Orchestrator(db, scheduler, goals);
 
   const services: ControlServices = {
     db, config,
     objects: new ObjectStore(`${config.dataDir}/objects`),
-    auth, goals, scheduler, attempts, llm, evolution, evalBroker, releases, research, evidence, orchestrator,
+    auth, goals, scheduler, attempts, llm, evolution, evalBroker, releases, research, evidence, optimizer, orchestrator,
   };
 
   registerRoutes(app, services);

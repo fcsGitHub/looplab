@@ -31,6 +31,13 @@ def _deny(msg):
     raise PermissionError(msg)
 
 
+def _stdlib_prefixes():
+    # trusted interpreters may load the stdlib from EITHER prefix: in a venv,
+    # sys.prefix is the venv but the real library lives under sys.base_prefix
+    prefixes = [os.path.realpath(sys.prefix), os.path.realpath(sys.base_prefix)]
+    return [p + os.sep for p in prefixes]
+
+
 def _paths_inside(paths):
     """All real paths inside the sandbox (or the stdlib) -> allowed."""
     for path in paths:
@@ -42,7 +49,7 @@ def _paths_inside(paths):
             continue
         p = os.path.realpath(path)
         inside = p.startswith(_ALLOW_PREFIX)
-        stdlib = p.startswith(os.path.realpath(sys.prefix) + os.sep)
+        stdlib = any(p.startswith(pre) for pre in _stdlib_prefixes())
         if not (inside or stdlib):
             return False
     return True

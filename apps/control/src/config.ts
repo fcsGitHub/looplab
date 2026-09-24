@@ -22,6 +22,8 @@ export interface Config {
   sessionTtlMs: number;
   costPer1kPromptUsd: number;
   costPer1kCompletionUsd: number;
+  /** python interpreter with optimizer backends installed (gepa) */
+  optimizerPython: string;
 }
 
 function loadEnvFile(): Record<string, string> {
@@ -80,6 +82,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     // Per 1k: 0.00027 / 0.0011.
     costPer1kPromptUsd: Number(env("COST_PER_1K_PROMPT_USD", "0.00027")),
     costPer1kCompletionUsd: Number(env("COST_PER_1K_COMPLETION_USD", "0.0011")),
+    optimizerPython: env("OPTIMIZER_PYTHON", path.join(root, ".venv-gepa", "Scripts", "python.exe")),
     ...overrides,
   };
 }

@@ -148,6 +148,13 @@ export class EvolutionService {
     mkdirSync(objDir, { recursive: true });
     writeFileSync(path.join(objDir, digest), content);
 
+    // content-addressed: building the same code twice returns the SAME
+    // candidate (idempotent); lineage stays in proposal.created events
+    const existing = (await this.db.query(
+      "SELECT id FROM candidates WHERE digest=$1 ORDER BY created_at LIMIT 1", [digest],
+    )).rows[0];
+    if (existing) return existing.id as string;
+
     const candId = newId("cand");
     await this.db.tx(async (client) => {
       await client.query(

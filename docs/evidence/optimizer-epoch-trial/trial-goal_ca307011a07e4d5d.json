@@ -1,0 +1,25 @@
+{
+ "kind": "meta_evolution_epoch_trial",
+ "started_at": "2026-09-24T15:48:08.047198+00:00",
+ "finished_at": "2026-09-24T15:49:31.990567+00:00",
+ "goal_id": "goal_ca307011a07e4d5d",
+ "optimizer_run": "opt_b894d1713634",
+ "challenger": "gepa@0.1.4",
+ "incumbent": "simple-baseline@1",
+ "margin": 0.05,
+ "challenger_internal_usage": {
+  "metric_calls": 78,
+  "llm_calls": 12,
+  "cost_usd": 0.018652,
+  "model": "deepseek-flash",
+  "prompt_tokens": 9348,
+  "completion_tokens": 14662
+ },
+ "proposals": [],
+ "outcome": "no_accepted_mutation: GEPA 严格改进验收未通过任何变体（证据不足，保留现任）；epoch 未切换",
+ "settlement": {
+  "switched": false,
+  "reason": "no challenger proposal to evaluate"
+ },
+ "note": "第四次全链路修复后运行；scripted fixture 未使用；反射调用经计量代理计账"
+}

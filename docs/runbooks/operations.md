@@ -12,6 +12,12 @@ npx tsx apps/control/src/index.ts          # 监听 :8080
 # worker（可多实例，命名区分）
 $env:WORKER_ID="dev-01"; npx tsx workers/agent-worker/src/index.ts
 
+# 优化器后端 venv（元演进 epoch 试炼所需，一次性）
+python -m venv .venv-gepa; .venv-gepa/Scripts/pip install gepa==0.1.4
+# 试炼（真实反射调用经计量代理计账）：
+#   npx tsx scripts/demo-optimizer-epoch.ts
+# 配置 OPTIMIZER_PYTHON 可覆盖解释器路径（默认 <repo>/.venv-gepa/Scripts/python.exe）
+
 # 停止：Ctrl+C（SIGTERM 同样优雅退出）；worker 直接终止是安全的——
 # 租约过期后由 supervisor 对账（LOST → 重排 / RECONCILE_REQUIRED）
 ```

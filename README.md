@@ -47,14 +47,24 @@ WORKER_ID=dev-01 npx tsx workers/agent-worker/src/index.ts
 
 开发模式前端（热更新）：`npm run dev --prefix apps/web`（Vite 代理 /v1 → :8080）。
 
+## OptimizerPort 与元演进（第二轮迭代）
+
+`packages/contracts/src/optimizer.ts` 定义后端注册表、纪元授权守卫与切换裁决
+（严格 margin，平局=证据不足保留现任，递归深度 1）；`apps/control/src/optimizer.ts`
++ `/v1/goals/:id/optimizer/*`、`/v1/meta/epoch*` 为控制面；反射 LLM 经
+计量代理计账（run token 鉴权，模型密钥不出控制进程）。后端 `gepa==0.1.4`
+（`optimizers/gepa-backend/`），真实模型 epoch 试炼与裁决：
+`docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。
+
 ## 测试
 
 ```bash
-npx vitest run                                  # 单元 + 契约 + 集成（A02–A18，除 A17 长跑）
+npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18、A19；A17 长跑除外）
 DEEPSEEK_API_KEY=sk-xxx npx vitest run tests/contract/deepseek-smoke.test.ts  # 真实模型烟测
 npx playwright test                             # 真实浏览器端到端（需控制服务+worker 运行中）
 npx tsx tests/soak/soak.ts --duration 10m       # 浸泡测试（72h 用 --duration 72h）
 npx tsx tests/fault-injection/kill-worker.ts    # 杀 worker 故障注入
+npx tsx scripts/demo-optimizer-epoch.ts         # 元演进 epoch 试炼（需 .venv-gepa，真实计费）
 ```
 
 ## 目录

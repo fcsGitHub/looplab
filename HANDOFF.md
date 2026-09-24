@@ -1,6 +1,6 @@
 # HANDOFF — 交接状态
 
-更新时间：2026-09-24 04:00 · 分支：`impl/platform`（本地，未推送）
+更新时间：2026-09-24 24:00（第二轮迭代）· 分支：`impl/platform`（本地，未推送）
 
 ## 当前状态
 
@@ -38,12 +38,16 @@
 | 故障注入（杀 worker） | **已执行（带保留）** | 实测击杀处于 RUNNING 的 victim；Windows 进程树击杀存在竞态（数次落在提交之后）。确定性覆盖见 A04/A05 自动化测试；账本取证报告 `docs/evidence/fault-injection/` |
 | Pi（@earendil-works）深度集成 | 延期 | npm 包已核验（ADR-0002）；AgentRuntimePort 由 DeepSeekLoopRuntime 实现，Pi 会话级适配留待后续 |
 | OS 级 worker 沙箱（容器/Job Object） | 延期 | 当前为语言级审计钩子 + 目录/路径限界；威胁模型已登记边界 |
-| GEPA / ShinkaEvolve / OpenEvolve 后端 | 未接 | OptimizerPort 合同与简单基线已实现；外部搜索器接入为后续阶段 |
+| GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 仍为后续 |
 | 参数训练（RL/微调） | 关闭 | 设计允许，非本期范围 |
 
 ## 事故账本
 
 - incident-001：run_python cwd 静默回退（旧进程）→ chdir 哨兵。
+- incident-004：OptimizerPort 首接三缺陷（run token 未入子进程 → 反射静默 401；
+  批量评估预算过冲；venv base-prefix 使沙箱误伤标准库 → 内部评分全 0）。
+  两轮"看似成功"的试炼因内部信号全 0 被作废重跑——检查手段：适配器直接评分
+  基线应有 ≈0.93–0.97 效率而非 0。报告：`docs/evidence/incident-004-…/`。
 - incident-002：run_python 允许绝对路径 → PEP 578 审计钩子全量隔离。
 - incident-003：修完钩子未重启旧 worker → 仓库根散落 ~80 文件（已归档）；
   runbook 增加「worker 修复后必须重启 + gw-hardening 断言」步骤。
@@ -58,12 +62,33 @@
 
 ## 复现命令
 
-见 README「测试」一节。全套：`npx vitest run`（25+ 用例）、
+见 README「测试」一节。全套：`npx vitest run`（40+ 用例）、
 `DEEPSEEK_API_KEY=… npx playwright test`、
-`npx tsx scripts/demo-evolution.ts`（演进闭环演示）。
+`npx tsx scripts/demo-evolution.ts`（演进闭环演示）、
+`npx tsx scripts/demo-optimizer-epoch.ts`（元演进 epoch 试炼，需 `.venv-gepa`）。
+
+## 第二轮迭代：OptimizerPort + GEPA + 元演进 epoch（2026-09-24 晚）
+
+- **合同**：`packages/contracts/src/optimizer.ts` —— 后端注册表、run manifest、
+  提案/用量 schema、纪元授权守卫 `assertOptimizerAuthorized`、裁决规则
+  `nextEpochWinner`（严格 margin，平局=证据不足不切换），递归深度结构性为 1。
+- **控制面**：`apps/control/src/optimizer.ts` + 路由 `/v1/goals/:id/optimizer/*`、
+  `/v1/meta/epoch*`；迁移 004（`optimizer_epochs` / `optimizer_runs`）。
+  反射 LLM 走 **计量代理** `POST /v1/optimizer/llm`（run token 鉴权、
+  预留→调用→结算、密钥不出控制进程）；后端是唯一拿 run token 的进程。
+- **后端**：`optimizers/gepa-backend/backend.py` —— GEPAAdapter 真适配
+  （evaluate 沙箱子进程评分 / make_reflective_dataset / propose_new_texts），
+  预算预检防批量过冲，连续反射失败熔断，种子未改进=诚实 0 提案。
+- **试炼裁决**：gepa 挑战现任 4 轮（2 轮因 incident-004 作废），2× 预算下
+  26 次真实反射无一变体通过严格改进验收 → INCONCLUSIVE，纪元不切换。
+  FFD 在该任务族已处贪心局部最优（6 种确定性策略同箱数实测）。
+- **测试**：单元 `tests/unit/optimizer-contracts.test.ts`（10）+
+  集成 `tests/integration/a19-optimizer-port.test.ts`（6）；验收清单 v3 增 A19。
 
 ## 最终验证（2026-09-24）
 
-- `DEEPSEEK_API_KEY=… npx vitest run`：25 passed / 1 skipped（BLOCKED 占位）/ 0 failed。
+- `DEEPSEEK_API_KEY=… npx vitest run`：第一轮 25 passed / 1 skipped / 0 failed。
 - `npx playwright test`：2 passed（真实浏览器主路径 + 未认证 SSE 拒绝）。
-- 累计真实模型开销：全程约 $10.9（3952 次调用——含孤儿 worker 舰队对历史积压目标的消耗；全部计入预算账本，可在 /v1/metrics 复核。事故 003 的孤儿进程是超支主因，已全部清场）。
+- 累计真实模型开销：第一轮约 $10.9（3952 次调用）；第二轮 epoch 试炼新增
+  ≈$0.20（含作废运行的全部计量花费，见 TRIAL-VERDICT.md）。全部计入预算账本，
+  可在 /v1/metrics 复核。
