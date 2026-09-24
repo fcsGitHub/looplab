@@ -2,6 +2,7 @@
 // schemas, epoch authorization guard, epoch winner rule (§6.8).
 import { describe, expect, it } from "vitest";
 import {
+  OPTIMIZER_BACKENDS,
   OptimizerRunManifestSchema,
   OptimizerCompletePayloadSchema,
   assertOptimizerAuthorized,
@@ -71,6 +72,22 @@ describe("epoch authorization guard (§6.8)", () => {
   it("no epoch / closed epoch blocks both modes", () => {
     expect(assertOptimizerAuthorized({ epoch: null, backend: "gepa@0.1.4", mode: "epoch_trial" }).ok).toBe(false);
     expect(assertOptimizerAuthorized({ epoch: { ...EPOCH, status: "CLOSED" }, backend: "simple-baseline@1", mode: "active" }).ok).toBe(false);
+  });
+});
+
+describe("optimizer backend registry", () => {
+  it("registers exactly the three sanctioned backends; unknown ids can never self-register", () => {
+    expect(OPTIMIZER_BACKENDS).toEqual(["simple-baseline@1", "gepa@0.1.4", "openevolve@0.3.2"]);
+    expect(isKnownBackend("openevolve@0.3.2")).toBe(true);
+    expect(isKnownBackend("shinkaevolve@0.1")).toBe(false);
+    expect(isKnownBackend("gepa@0.1.4 ")).toBe(false); // no fuzzy matching
+  });
+
+  it("a newly registered backend is epoch-guarded like any other (epoch_trial on OPEN epoch)", () => {
+    const ok = assertOptimizerAuthorized({ epoch: EPOCH, backend: "openevolve@0.3.2", mode: "epoch_trial" });
+    expect(ok.ok).toBe(true);
+    const blocked = assertOptimizerAuthorized({ epoch: EPOCH, backend: "openevolve@0.3.2", mode: "active" });
+    expect(blocked.ok).toBe(false); // not the active backend of this epoch
   });
 });
 

@@ -310,13 +310,22 @@ export class OptimizerService {
       }
     }
 
-    const backendScript = path.resolve(path.join(rootDir(), "optimizers", "gepa-backend", "backend.py"));
-    if (!existsSync(backendScript)) throw new Error(`optimizer backend missing: ${backendScript}`);
+    // replaceable adapters behind the port: each registered backend maps to
+    // its own authorized-infrastructure process (same spawn contract:
+    // manifest path as argv[1], run token via LOOPLAB_OPT_TOKEN, result.json)
+    const BACKEND_SCRIPTS: Record<string, string> = {
+      "gepa@0.1.4": path.join(rootDir(), "optimizers", "gepa-backend", "backend.py"),
+      "openevolve@0.3.2": path.join(rootDir(), "optimizers", "openevolve-backend", "backend.py"),
+    };
+    const backendScript = BACKEND_SCRIPTS[input.backend];
+    if (!backendScript) throw new Error(`no process backend registered for ${input.backend}`);
+    const resolved = path.resolve(backendScript);
+    if (!existsSync(resolved)) throw new Error(`optimizer backend missing: ${resolved}`);
     const python = this.config.optimizerPython;
-    if (!existsSync(python)) throw new Error(`optimizer python missing: ${python} (create .venv-gepa, pip install gepa==0.1.4)`);
+    if (!existsSync(python)) throw new Error(`optimizer python missing: ${python} (create .venv-gepa, pip install gepa==0.1.4 openevolve==0.3.2)`);
 
     const exit = await new Promise<{ code: number | null; stderr: string }>((resolve, reject) => {
-      const child = spawn(python, [backendScript, manifestPath], {
+      const child = spawn(python, [resolved, manifestPath], {
         cwd: manifest.work_dir,
         timeout: input.timeoutMs ?? 30 * 60_000,
         env: {

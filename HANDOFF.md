@@ -40,6 +40,7 @@
 | OS 级 worker 沙箱（容器/Job Object） | 延期 | 当前为语言级审计钩子 + 目录/路径限界；威胁模型已登记边界 |
 | A17 72h soak | **部分执行（扩大）** | 2026-09-25 追加 20 分钟有界浸泡（预算护栏语义修正为单次运行增量 + 请求超时 + 逐周期日志后执行）；72h 全程仍未执行，不能声称通过 |
 | GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 结论（第十五轮调查）：**ShinkaEvolve 无官方可装包**（PyPI 无 `shinkaevolve`；`shinka` 0.3.0 为无关图像放大包，名称撞车）——接入须 vendor 研究代码，超出锁定依赖边界，诚实搁置；**OpenEvolve 可装**（`openevolve==0.3.2`，PyPI 核验）——第三后端的具体候选，接入方案与 GEPA 相同（后端子进程经计量代理反射、candidate_runner 沙箱评分、预算桥接 max_evaluations→max_metric_calls），作为独立后续轮次 |
+| OpenEvolve 后端（OptimizerPort 第三后端） | **已接入 + 真实试炼完成**（第十六轮） | `openevolve==0.3.2` 注册进合同注册表（`openevolve-backend/backend.py`，与 GEPA 同一生成协议：argv manifest / result.json / LOOPLAB_OPT_TOKEN）。密钥不变式保住方式：OpenEvolve 自带 LLM 客户端指向**回环 shim**（127.0.0.1 随机端口，OpenAI 兼容 /chat/completions），shim 把每次调用转为计量代理请求——模型密钥仍不出控制进程；评测桥接为自包含生成文件（跨进程沙箱 + metric_state.json 预算账本）。真实试炼（goal_a184045a4a614540，gap 族，等预算 40 指标调用）：挑战者 10 次计量 LLM 变异 / $0.0147，best==seed 诚实 0 提案；现任 simple-baseline 提案独立评测 ELIGIBLE delta=1；结算**保留现任**。FFD 局部最优结论第三次获得独立后端佐证。demo 脚本现支持 `CHALLENGER=<backend>` 泛化 |
 | 参数训练（RL/微调） | 关闭 | 设计允许，非本期范围 |
 
 ## 事故账本

@@ -18,6 +18,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 const BASE = process.env.CONTROL_URL ?? "http://localhost:8080";
 const TASKPACK = process.env.TASKPACK ?? "algorithm-search.bin-packing-large";
 const MARGIN = Number(process.env.EPOCH_MARGIN ?? 0.05);
+// any backend registered on the OptimizerPort can challenge as the challenger
+const CHALLENGER = process.env.CHALLENGER ?? "gepa@0.1.4";
 let cookie = "";
 
 async function req(method: string, url: string, body?: unknown) {
@@ -62,7 +64,7 @@ async function main() {
   const proj = projects.find((p: any) => p.slug === "algorithm-search");
   const ses = (await req("POST", "/v1/sessions", { project_id: proj.id, title: `元演进试炼 ${TASKPACK}` })).json;
   const msg = (await req("POST", `/v1/sessions/${ses.id}/messages`, {
-    content: `epoch 试炼：等预算比较 simple-baseline 与 gepa 在 ${TASKPACK} 上的改进能力`,
+    content: `epoch 试炼：等预算比较 simple-baseline 与 ${CHALLENGER} 在 ${TASKPACK} 上的改进能力`,
   })).json;
   const goalId = msg.goal_id;
   await req("POST", `/v1/goals/${goalId}/commands`, { kind: "pause" });
@@ -95,7 +97,7 @@ async function main() {
   // ---- challenger round (epoch-trial mode; real reflection via proxy) ------
   const tCh = Date.now();
   const cha = await req("POST", `/v1/goals/${goalId}/optimizer/run-round`, {
-    backend: "gepa@0.1.4", mode: "epoch_trial",
+    backend: CHALLENGER, mode: "epoch_trial",
     max_metric_calls: maxMetricCalls, max_llm_cost_usd: maxLlmUsd,
     reflection: "gateway", taskpack_id: TASKPACK, timeout_ms: 30 * 60_000,
   });
@@ -117,7 +119,7 @@ async function main() {
 
   // ---- settlement ----------------------------------------------------------
   const settle = await req("POST", "/v1/meta/epoch/settle", {
-    incumbent: "simple-baseline@1", challenger: "gepa@0.1.4",
+    incumbent: "simple-baseline@1", challenger: CHALLENGER,
     incumbent_improvement: incumbentImprovement ?? 0,
     challenger_improvement: challengerImprovement ?? 0,
     min_margin: MARGIN,
@@ -147,7 +149,7 @@ async function main() {
       proposals: inc.json.proposalIds.length, verdict: incumbentVerdict, delta: incumbentImprovement,
     },
     challenger: {
-      backend: "gepa@0.1.4", run: cha.json.runId, usage: cha.json.usage,
+      backend: CHALLENGER, run: cha.json.runId, usage: cha.json.usage,
       proposals: cha.json.proposalIds.length, verdict: challengerVerdict, delta: challengerImprovement,
       candidate: challengerCandidate,
     },

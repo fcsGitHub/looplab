@@ -11,7 +11,7 @@ import { z } from "zod";
 //     optimizer proposes changes to evaluators, sealed labels, kernel code or
 //     other optimizers — those files are not part of any manifest.
 
-export const OPTIMIZER_BACKENDS = ["simple-baseline@1", "gepa@0.1.4"] as const;
+export const OPTIMIZER_BACKENDS = ["simple-baseline@1", "gepa@0.1.4", "openevolve@0.3.2"] as const;
 export type OptimizerBackendId = (typeof OPTIMIZER_BACKENDS)[number];
 
 export function isKnownBackend(id: string): id is OptimizerBackendId {
