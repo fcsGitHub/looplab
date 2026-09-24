@@ -74,7 +74,15 @@
 
 1. verify/审查任务偶发因模型不按 RESULT 格式收尾而失败重试（消耗预算）；
    已通过「临近步数上限强制收尾」缓解，仍偶发。
-2. E2E 中 SSE 断连重连已实现游标续传，但未覆盖「服务重启中的重连」路径。
+2. **已关闭（第八轮）**：SSE「服务重启中的重连」路径落地验证——
+   A23 用应用级真实重启（旧实例被 closeAllConnections 杀停、socket 中断、
+   内存总线全丢；新实例对同一 DB 打开）复现进程死亡：客户端持旧游标重连后，
+   以 DB 事件账本为唯一事实断言——游标之后每个事件**恰好一次、按 seq 有序**，
+   覆盖杀停前已提交未推送的在途窗口与重启后新事件；`?after=`（前端 hook
+   路径）与标准 `Last-Event-ID` 头（原生 EventSource 路径，服务端新增回退
+   支持）双路均验证。在线实证：重启后的 ：8080 实例以
+   `Last-Event-ID: 30974` 恰好重放 5 个事件。
+   测试：`tests/integration/a23-sse-restart-reconnect.test.ts`（1 项）。
 3. **已关闭（第七轮）**：调度优先级落地——goals 增加 priority
    （1 最急 .. 9 最不急，默认 5，CHECK 约束）；claim 候选排序改为
    (priority ASC, created_at ASC)：紧急目标抢占更早的积压，同级保持 FIFO；

@@ -737,13 +737,23 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
-  // ---- SSE event stream (cursor replay, A03) ---------------------------------------
+  // ---- SSE event stream (cursor replay, A03/A23) ------------------------------------
   app.get("/v1/events", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     const q = req.query as any;
-    const after = q.after
-      ? BigInt(q.after)
-      : BigInt(String((await svc.db.query("SELECT COALESCE(MAX(seq),0) AS s FROM events")).rows[0]?.s ?? "0"));
+    // cursor precedence: explicit ?after, then the standard Last-Event-ID
+    // header (native EventSource resume — the restart path must not lose
+    // events committed while the previous process was dying), else live tail.
+    const maxSeq = async () =>
+      BigInt(String((await svc.db.query("SELECT COALESCE(MAX(seq),0) AS s FROM events")).rows[0]?.s ?? "0"));
+    let after: bigint;
+    if (q.after) {
+      after = BigInt(q.after);
+    } else if (req.headers["last-event-id"]) {
+      try { after = BigInt(String(req.headers["last-event-id"])); } catch { after = await maxSeq(); }
+    } else {
+      after = await maxSeq();
+    }
     const goalId = q.goal_id ?? null;
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
