@@ -7,6 +7,11 @@ import { randomBytes } from "node:crypto";
 import type { RunSpec } from "@looplab/contracts";
 import { ControlClient } from "./control-client.js";
 import { AgentLoop } from "./agent-loop.js";
+import { PiAttemptExecutor } from "./pi-executor.js";
+
+// runtime selection: the port contract (contracts/runtime.ts) makes the
+// adapter swappable; default stays the built-in loop runtime
+const RUNTIME = process.env.RUNTIME ?? "loop";
 
 const CONTROL_URL = process.env.CONTROL_URL ?? "http://localhost:8080";
 const WORKER_ID = process.env.WORKER_ID ?? `sandbox-${randomBytes(3).toString("hex")}`;
@@ -40,8 +45,9 @@ async function main() {
     console.log(`[worker ${WORKER_ID}] attempt ${spec.attempt_id} task=${spec.task_key} role=${spec.role}`);
     mkdirSync(spec.sandbox.workspace_dir, { recursive: true });
     try {
-      const loop = new AgentLoop(client, spec, WORKER_ID);
-      const outcome = await loop.run();
+      const outcome = RUNTIME === "pi"
+        ? await new PiAttemptExecutor(client, spec, WORKER_ID).run()
+        : await new AgentLoop(client, spec, WORKER_ID).run();
       const commitRes = await client.commit(spec.attempt_id, WORKER_ID, {
         attempt_id: spec.attempt_id,
         lease_epoch: spec.lease.epoch,

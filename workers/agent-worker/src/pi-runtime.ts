@@ -37,6 +37,10 @@ export interface PiLoopRuntimeOptions {
   }>;
   /** optional policy hook mirroring the control-plane tool gate */
   beforeToolCall?: Agent["beforeToolCall"];
+  /** lifecycle listener, subscribed BEFORE the run starts (checkpoints etc.) */
+  onEvent?: (event: AgentEvent) => void;
+  /** called with the live agent right after construction, before the run */
+  onReady?: (agent: Agent) => void;
 }
 
 interface GatedToolDef {
@@ -81,6 +85,9 @@ export class PiLoopRuntime {
     tools: GatedToolDef[];
     gateway: CapabilityGateway;
     initialUserPrompt: string;
+    onEvent?: (event: AgentEvent) => void;
+    /** called with the live agent right after construction, before the run */
+    onReady?: (agent: Agent) => void;
   }): Promise<{ agent: Agent }> {
     this.gateway = input.gateway;
     this.toolDefs = input.tools;
@@ -122,8 +129,11 @@ export class PiLoopRuntime {
     if (this.options.beforeToolCall) agent.beforeToolCall = this.options.beforeToolCall;
 
     this.agent = agent;
+    if (input.onReady) input.onReady(agent);
+    const listener = this.options.onEvent ?? input.onEvent;
     agent.subscribe((event) => {
       this.eventLog.push(event);
+      if (listener) listener(event);
     });
     await agent.prompt(input.initialUserPrompt);
     return { agent };

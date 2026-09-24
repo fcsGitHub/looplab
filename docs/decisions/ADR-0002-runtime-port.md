@@ -40,3 +40,13 @@
 - **生产接线状态（如实）**：worker 守护进程默认运行时仍为 DeepSeekLoopRuntime；
   PiLoopRuntime 已具备同端口能力并验证到烟测级，接管生产任务（心跳/检查点/
   RESULT 解析完全对齐 agent-loop）列为后续增强，不虚报。
+
+## 修订 2（2026-09-25）：生产接线验证
+
+`RUNTIME=pi` worker 分支落地（`pi-executor.ts`）：完整 attempt 在 Pi 循环上
+执行，平台不变量逐项保留——计量网关传输、PolicyGate 先授权后执行、
+CapabilityGateway 沙箱、轮间 steer、drain/abort、RESULT 解析、产物上传、
+逐轮检查点（账本带 `runtime: pi-agent-core` 标记）。真实多任务目标端到端
+运行验证：t1 SUCCEEDED（产物落沙箱）、t2/t4 如实 FAILED（暴露问题账本 #5
+的跨 attempt 传播缺口）、diagnose 任务 SUCCEEDED——与 loop 运行时账本形状
+完全一致。默认运行时仍为 loop；两者可随时切换即为本 ADR 的可替换性论断。

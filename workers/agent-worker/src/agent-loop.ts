@@ -297,7 +297,7 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function parseResult(text: string | null): { summary: string; outcome: "SUCCEEDED" | "FAILED"; verification: { kind: string; passed: boolean; detail: string } | null; files: string[] } | null {
+export function parseResult(text: string | null): { summary: string; outcome: "SUCCEEDED" | "FAILED"; verification: { kind: string; passed: boolean; detail: string } | null; files: string[] } | null {
   if (!text) return null;
   const idx = text.indexOf("RESULT");
   if (idx === -1) return null;
@@ -321,14 +321,14 @@ function parseResult(text: string | null): { summary: string; outcome: "SUCCEEDE
   }
 }
 
-async function safeJoin(workspace: string, rel: string): Promise<string> {
+export async function safeJoin(workspace: string, rel: string): Promise<string> {
   const path = await import("node:path");
   const abs = path.resolve(workspace, rel);
   if (!abs.startsWith(path.resolve(workspace))) throw new Error("path escapes workspace");
   return abs;
 }
 
-function guessMediaType(name: string): string {
+export function guessMediaType(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const table: Record<string, string> = {
     txt: "text/plain", md: "text/markdown", json: "application/json",
