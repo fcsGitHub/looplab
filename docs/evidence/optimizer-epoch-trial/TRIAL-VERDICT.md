@@ -71,3 +71,42 @@
 
 本轮试炼真实模型开销 ≈ $0.022（全部计量入账）。证据：
 `trial-algorithm-search.bin-packing-large-goal_400e49a41ee644ab.json`。
+
+---
+
+# 终章（2026-09-25）：间隙族试炼 — 改进闭环首次全程真实贯通
+
+按"有区分度的实验"设计，provision 了 `algorithm-search.bin-packing-gap`
+任务族：实例在**供给期**筛选，保证 FFD 基线至少留有 1 箱可回收空间
+（存在可合并对，或 BFD 排序更优）。套件内不含任何标签（problems 只有
+items/capacity，与其余族同构），评测器不变，仍是诚实的配对比较——
+这是基准选题，不是标签泄漏。
+
+## 结果（goal_fa9c261128b24869，等协议）
+
+| 后端 | 提案数 | 用量 | 独立评测（selection） |
+|---|---|---|---|
+| simple-baseline@1（现任） | 1 | 1 次 LLM，$0.0008 | **ELIGIBLE**：bins_avg 19.5 → 18.5，delta=1.0 |
+| gepa@0.1.4（挑战者） | 1 | 14 次反射 + 94/96 评估，$0.0364 | **ELIGIBLE**：19.5 → 18.5，delta=1.0 |
+
+结算：两后端改进完全相等（diff 0.0000 < margin 0.05）→ **证据不足，保留现任**。
+这不是失败：两个优化器在同一任务族上独立收敛到同一改进幅度的解，
+结算规则正确地拒绝了在无区分度证据下切换纪元。
+
+## 发布（真实，非 fixture）
+
+挑战者候选（BFD + 有界局部搜索合并后处理，LLM 真实生成）通过
+dev/selection/release 三层硬约束后由操作者灰度发布。发布过程本身还
+经历了一次事故与纠正（错范围发布 → 手动回滚 → 正确 scope 重新灰度 →
+回归监视通过），见 `docs/evidence/incident-005-wrong-scope-release/`：
+
+- rel_60c6245a5a554388：ROLLED_BACK（错 scope，已回滚）
+- **rel_fc218733450544ba：ACTIVE canary @ algorithm:bin-packing-gap**，
+  回归监视 `delta -1.0000 within epsilon`（改进方向，无退化）
+
+## 里程碑
+
+至此设计 §五 的完整链路首次全部真实贯通：
+真实失败/目标 → OptimizerPort 提案（现任+挑战者）→ CAS 候选 →
+三层独立评测（ELIGIBLE）→ 人工授权灰度发布 → 回归监视 →
+（事故时）指针回滚，全程计量、全程事件账本可追溯。

@@ -413,6 +413,23 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return reply.code(res.ok ? 200 : 409).send(res);
   });
 
+  app.post("/v1/goals/:id/releases/:releaseId/rollback", async (req, reply) => {
+    // operator-initiated rollback of a canary/full release pointer
+    if (!(await requireAuth(req, reply))) return;
+    const { scope, reason } = req.body as any;
+    try {
+      const res = await svc.releases.rollback({
+        scope: String(scope ?? "algorithm:bin-packing"),
+        releaseId: (req.params as any).releaseId,
+        reason: String(reason ?? "operator rollback"),
+        actor: `user:${req.user!.id}`,
+      });
+      return res;
+    } catch (err) {
+      return reply.code(409).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/v1/goals/:id/evolution/canary-check", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     const { scope, taskpack_id } = req.body as any;

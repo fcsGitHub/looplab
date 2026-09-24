@@ -1,0 +1,50 @@
+{
+ "kind": "meta_evolution_epoch_trial_v2",
+ "started_at": "2026-09-24T16:39:27.804Z",
+ "finished_at": "2026-09-24T16:42:20.620Z",
+ "goal_id": "goal_fa9c261128b24869",
+ "task_family": "algorithm-search.bin-packing-gap",
+ "margin": 0.05,
+ "incumbent": {
+  "backend": "simple-baseline@1",
+  "run": "opt_4bb3d98b8a0a",
+  "usage": {
+   "metric_calls": 0,
+   "llm_calls": 1,
+   "prompt_tokens": 388,
+   "completion_tokens": 619,
+   "cost_usd": 0.000786,
+   "model": "deepseek-flash"
+  },
+  "proposals": 1,
+  "verdict": "ELIGIBLE",
+  "delta": 1
+ },
+ "challenger": {
+  "backend": "gepa@0.1.4",
+  "run": "opt_13ec5fdade2b",
+  "usage": {
+   "metric_calls": 94,
+   "llm_calls": 14,
+   "prompt_tokens": 21673,
+   "completion_tokens": 27760,
+   "cost_usd": 0.036387,
+   "model": "deepseek-flash"
+  },
+  "proposals": 1,
+  "verdict": "ELIGIBLE",
+  "delta": 1,
+  "candidate": "cand_63e1a917cd7b4539"
+ },
+ "settlement": {
+  "switched": false,
+  "nextEpochIndex": null,
+  "reason": "difference 0.0000 within margin 0.05: 证据不足，保留现任"
+ },
+ "promotion": {
+  "ok": true,
+  "releaseId": "rel_60c6245a5a554388"
+ },
+ "protocol": "equal metric-call budget grant; independent dev/selection/release evaluation for both backends; strict-margin switch, ties = 证据不足保留现任",
+ "note": "all reflection/proposal LLM calls metered via the control proxy; scripted fixtures were NOT used in this run"
+}

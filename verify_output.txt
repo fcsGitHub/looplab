@@ -1,0 +1,35 @@
+=== Independent numerical verification of stats.py ===
+stats source: embedded copy of stats.py
+seed=42, n=100, generator=random.random()
+sample[0:3] = [0.6394267984578837, 0.025010755222666936, 0.27502931836911926]
+
+--- stats.py stdout (captured) ---
+count: 100
+mean: 0.479569
+variance: 0.086157
+--- end stdout ---
+
+count: reported=100, expected=100 -> OK
+
+[A] Full-precision computed values vs statistics module (tol 1e-9):
+  mean:
+  reported  = 0.47956924312641697
+  reference = 0.4795692431264169
+  rel.error = 1.158e-16  (tol 1e-09)  -> OK
+  variance (population):
+  reported  = 0.08615704820019791
+  reference = 0.08615704820019793
+  rel.error = 1.611e-16  (tol 1e-09)  -> OK
+
+[B] stats.py printed values (6dp) vs reference (abs tol 5e-07):
+  printed mean:
+  reported  = 0.479569
+  reference = 0.4795692431264169
+  abs.error = 2.431e-07  (tol 5e-07)  -> OK
+  printed variance:
+  reported  = 0.086157
+  reference = 0.08615704820019793
+  abs.error = 4.820e-08  (tol 5e-07)  -> OK
+
+PASS
+EXIT CODE: 0

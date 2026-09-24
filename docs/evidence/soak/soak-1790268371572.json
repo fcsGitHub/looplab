@@ -1,0 +1,81 @@
+{
+ "run_kind": "partial-30min",
+ "started": "2026-09-24T16:46:08.859Z",
+ "ended": "2026-09-24T16:46:11.572Z",
+ "duration_s": 3,
+ "cycles": 1,
+ "errors": 0,
+ "faults": [
+  {
+   "at": "2026-09-24T16:46:11.567Z",
+   "kind": "budget_cap_reached",
+   "detail": "spend $10.879316"
+  }
+ ],
+ "goals_created": 1,
+ "platform_metrics": {
+  "uptime_s": 50,
+  "goals": [
+   {
+    "state": "CANCELLED",
+    "n": 18
+   },
+   {
+    "state": "ACTIVE",
+    "n": 5
+   },
+   {
+    "state": "COMPLETED",
+    "n": 9
+   },
+   {
+    "state": "PAUSED_USER",
+    "n": 5
+   }
+  ],
+  "attempts": [
+   {
+    "status": "LOST",
+    "n": 8
+   },
+   {
+    "status": "COMMITTED",
+    "n": 284
+   }
+  ],
+  "events": {
+   "count": 22626,
+   "head": "22676"
+  },
+  "budget": [
+   {
+    "status": "open",
+    "settled": "0.000000",
+    "unknown": "0.000000",
+    "reserved": "0.019440"
+   },
+   {
+    "status": "settled",
+    "settled": "11.084031",
+    "unknown": "0.000000",
+    "reserved": "0.000000"
+   }
+  ],
+  "model": {
+   "calls": 3952,
+   "cost_usd": 10.879316
+  },
+  "orchestrator": {
+   "last_reconcile_at": "2026-09-24T16:46:09.709Z",
+   "reconcile_totals": {
+    "lost": 0,
+    "reconcileRequired": 0
+   },
+   "last_error": null
+  }
+ },
+ "notes": [
+  "A17 72h 验收仅在 run_kind=A17-full-72h 且 errors 无关紧要时可作为通过证据；",
+  "短时运行记录为部分浸泡测试：证明机制可运行、可观测、故障可恢复，不代表 72 小时稳定性。"
+ ]
+}

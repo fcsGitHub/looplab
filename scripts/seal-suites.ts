@@ -30,6 +30,69 @@ function binPackingProblems(prefix, seedStart, count, nItems) {
   return problems;
 }
 
+// ---- FFD-gap curation helpers ----------------------------------------------
+// Reference heuristics used ONLY at provisioning time to select instances
+// where the FFD baseline provably has headroom. Candidates never see these.
+function ffdPack(items, capacity) {
+  const bins = [];
+  for (const s of [...items].sort((a, b) => b - a)) {
+    let placed = false;
+    for (const b of bins) {
+      if (b.reduce((x, y) => x + y, 0) + s <= capacity) { b.push(s); placed = true; break; }
+    }
+    if (!placed) bins.push([s]);
+  }
+  return bins;
+}
+function bfdPack(items, capacity) {
+  const bins = [];
+  for (const s of [...items].sort((a, b) => b - a)) {
+    let bestI = -1, bestRem = Infinity;
+    for (let i = 0; i < bins.length; i++) {
+      const rem = capacity - bins[i].reduce((x, y) => x + y, 0) - s;
+      if (rem >= 0 && rem < bestRem) { bestI = i; bestRem = rem; }
+    }
+    if (bestI >= 0) bins[bestI].push(s);
+    else bins.push([s]);
+  }
+  return bins;
+}
+function mergeablePair(bins, capacity) {
+  for (let i = 0; i < bins.length; i++) {
+    for (let j = i + 1; j < bins.length; j++) {
+      if (bins[i].reduce((x, y) => x + y, 0) + bins[j].reduce((x, y) => x + y, 0) <= capacity) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Keep only instances where the FFD baseline provably loses at least one bin
+ * to a trivially better strategy (BFD, or FFD + any two-bin merge). Graded
+ * headroom emerges naturally: some instances only need a merge pass, others
+ * need a genuine ordering change.
+ */
+function binPackingGapProblems(prefix, seedStart, count, nItems) {
+  const problems = [];
+  let seed = seedStart;
+  let tries = 0;
+  while (problems.length < count && tries < count * 5000) {
+    const rng = mulberry32(seed);
+    const items = Array.from({ length: nItems }, () => 10 + Math.floor(rng() * 81));
+    const ffdBins = ffdPack(items, 100);
+    const betterBins = Math.min(
+      bfdPack(items, 100).length,
+      mergeablePair(ffdBins, 100) ? ffdBins.length - 1 : ffdBins.length,
+    );
+    if (ffdBins.length - betterBins >= 1) {
+      problems.push({ id: `${prefix}-${seed}`, seed, items, capacity: 100 });
+    }
+    seed++;
+    tries++;
+  }
+  return problems;
+}
+
 const binPackBase = {
   taskpack_id: "algorithm-search.bin-packing",
   metric: "bins_avg",
@@ -106,6 +169,50 @@ export function provisionInto(rootDataDir = dataTaskpacks, rootSealedDir = seale
   writeJson(path.join(rootSealedDir, "algorithm-search.bin-packing-large", "release-suite.json"), {
     ...largeBase, layer: "release",
     problems: binPackingProblems("rel", 6000, 10, 220),
+  });
+
+  // ---- algorithm-search.bin-packing-gap -----------------------------------
+  // Benchmark curation with KNOWN headroom (§六.8 "有区分度的实验"): instances
+  // are filtered so the FFD baseline provably leaves >=1 recoverable bin
+  // (a mergeable pair exists, or a best/worst-fit ordering packs tighter).
+  // This is instance selection at provisioning time — no labels ship with the
+  // suite (problems carry only items/capacity, identical schema to the other
+  // families) and the evaluator stays the same honest paired comparison.
+  // Seed archive 7xxx/8xxx/9xxx, disjoint from both other families.
+  const gsrc = path.join(ROOT, "taskpacks", "algorithm-search");
+  const gdst = path.join(rootDataDir, "algorithm-search.bin-packing-gap");
+  mkdirSync(gdst, { recursive: true });
+  for (const f of ["evaluator.py", "baseline.py", "candidate_runner.py", "taskpack.json"]) {
+    copyFileSync(path.join(gsrc, f), path.join(gdst, f));
+    console.log("copied", f);
+  }
+  const gapBase = {
+    ...binPackBase,
+    taskpack_id: "algorithm-search.bin-packing-gap",
+    contract_version: "bin-packing-gap/v1",
+    time_limit_ms_per_problem: 1200,
+  };
+  // 40-item instances with a wide size spread keep the merge/yield rate high
+  // enough for provisioning; fewer, smaller instances also make each trial
+  // cheap. binPackingGapProblems caps its own search budget per layer.
+  const gtp = JSON.parse(readFileSync(path.join(gdst, "taskpack.json"), "utf8"));
+  gtp.id = "algorithm-search.bin-packing-gap";
+  gtp.baseline.evaluation_ref = "suite://bin-packing-gap/dev-v1";
+  gtp.validation.dev_suite_ref = "suite://bin-packing-gap/dev-v1";
+  gtp.validation.selection_suite_ref = "suite://bin-packing-gap/selection-v1";
+  gtp.validation.release_suite_ref = "sealed://bin-packing-gap/release-v1";
+  writeJson(path.join(gdst, "taskpack.json"), gtp);
+  writeJson(path.join(gdst, "dev-suite.json"), {
+    ...gapBase, layer: "dev", curation: "ffdlag>=1",
+    problems: binPackingGapProblems("dev", 7000, 10, 40),
+  });
+  writeJson(path.join(gdst, "selection-suite.json"), {
+    ...gapBase, layer: "selection", curation: "ffdlag>=1",
+    problems: binPackingGapProblems("sel", 8000, 10, 40),
+  });
+  writeJson(path.join(rootSealedDir, "algorithm-search.bin-packing-gap", "release-suite.json"), {
+    ...gapBase, layer: "release", curation: "ffdlag>=1",
+    problems: binPackingGapProblems("rel", 9000, 10, 40),
   });
 
   // ---- harness-improvement ------------------------------------------------

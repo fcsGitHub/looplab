@@ -1,0 +1,155 @@
+{
+ "run_kind": "partial-30min",
+ "started": "2026-09-24T16:46:48.284Z",
+ "ended": "2026-09-24T17:16:50.628Z",
+ "duration_s": 1802,
+ "cycles": 593,
+ "errors": 0,
+ "faults": [
+  {
+   "at": "2026-09-24T16:47:50.549Z",
+   "kind": "steer",
+   "detail": "goal goal_5e63ed58f6bc4d3d"
+  },
+  {
+   "at": "2026-09-24T16:49:51.080Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4099"
+  },
+  {
+   "at": "2026-09-24T16:51:53.068Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_5e63ed58f6bc4d3d"
+  },
+  {
+   "at": "2026-09-24T16:53:53.572Z",
+   "kind": "steer",
+   "detail": "goal goal_5e63ed58f6bc4d3d"
+  },
+  {
+   "at": "2026-09-24T16:55:54.050Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4246"
+  },
+  {
+   "at": "2026-09-24T16:57:56.076Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_b86a41944212403b"
+  },
+  {
+   "at": "2026-09-24T16:59:56.617Z",
+   "kind": "steer",
+   "detail": "goal goal_b86a41944212403b"
+  },
+  {
+   "at": "2026-09-24T17:01:57.209Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4338"
+  },
+  {
+   "at": "2026-09-24T17:03:59.272Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_b86a41944212403b"
+  },
+  {
+   "at": "2026-09-24T17:05:59.747Z",
+   "kind": "steer",
+   "detail": "goal goal_8d98a3d3793d4a19"
+  },
+  {
+   "at": "2026-09-24T17:08:00.254Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4573"
+  },
+  {
+   "at": "2026-09-24T17:10:02.270Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_8d98a3d3793d4a19"
+  },
+  {
+   "at": "2026-09-24T17:12:02.810Z",
+   "kind": "steer",
+   "detail": "goal goal_b86a41944212403b"
+  },
+  {
+   "at": "2026-09-24T17:14:03.366Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4786"
+  },
+  {
+   "at": "2026-09-24T17:16:05.440Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_8d98a3d3793d4a19"
+  }
+ ],
+ "goals_created": 3,
+ "platform_metrics": {
+  "uptime_s": 1889,
+  "goals": [
+   {
+    "state": "CANCELLED",
+    "n": 18
+   },
+   {
+    "state": "ACTIVE",
+    "n": 7
+   },
+   {
+    "state": "COMPLETED",
+    "n": 14
+   },
+   {
+    "state": "PAUSED_USER",
+    "n": 5
+   }
+  ],
+  "attempts": [
+   {
+    "status": "LOST",
+    "n": 8
+   },
+   {
+    "status": "COMMITTED",
+    "n": 354
+   },
+   {
+    "status": "RUNNING",
+    "n": 1
+   }
+  ],
+  "events": {
+   "count": 27868,
+   "head": "27918"
+  },
+  "budget": [
+   {
+    "status": "open",
+    "settled": "0.000000",
+    "unknown": "0.000000",
+    "reserved": "0.027616"
+   },
+   {
+    "status": "settled",
+    "settled": "13.195987",
+    "unknown": "0.000000",
+    "reserved": "0.000000"
+   }
+  ],
+  "model": {
+   "calls": 4863,
+   "cost_usd": 12.986684
+  },
+  "orchestrator": {
+   "last_reconcile_at": "2026-09-24T17:16:50.362Z",
+   "reconcile_totals": {
+    "lost": 0,
+    "reconcileRequired": 0
+   },
+   "last_error": null
+  }
+ },
+ "notes": [
+  "A17 72h 验收仅在 run_kind=A17-full-72h 且 errors 无关紧要时可作为通过证据；",
+  "短时运行记录为部分浸泡测试：证明机制可运行、可观测、故障可恢复，不代表 72 小时稳定性。"
+ ]
+}

@@ -1,0 +1,126 @@
+{
+ "run_kind": "partial-20min",
+ "started": "2026-09-24T17:03:02.053Z",
+ "ended": "2026-09-24T17:23:04.897Z",
+ "duration_s": 1203,
+ "cycles": 394,
+ "errors": 0,
+ "faults": [
+  {
+   "at": "2026-09-24T17:04:04.514Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_25c455b0b11947cb"
+  },
+  {
+   "at": "2026-09-24T17:06:05.017Z",
+   "kind": "steer",
+   "detail": "goal goal_f8355366c737422a"
+  },
+  {
+   "at": "2026-09-24T17:08:05.502Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4573"
+  },
+  {
+   "at": "2026-09-24T17:10:07.535Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_c9796699598842e5"
+  },
+  {
+   "at": "2026-09-24T17:12:08.076Z",
+   "kind": "steer",
+   "detail": "goal goal_c9796699598842e5"
+  },
+  {
+   "at": "2026-09-24T17:14:08.502Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4789"
+  },
+  {
+   "at": "2026-09-24T17:16:10.580Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_25c455b0b11947cb"
+  },
+  {
+   "at": "2026-09-24T17:18:11.110Z",
+   "kind": "steer",
+   "detail": "goal goal_f8355366c737422a"
+  },
+  {
+   "at": "2026-09-24T17:20:11.660Z",
+   "kind": "metrics_probe",
+   "detail": "lost=8 model_calls=4959"
+  },
+  {
+   "at": "2026-09-24T17:22:13.687Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_c9796699598842e5"
+  }
+ ],
+ "goals_created": 3,
+ "platform_metrics": {
+  "uptime_s": 2264,
+  "goals": [
+   {
+    "state": "CANCELLED",
+    "n": 18
+   },
+   {
+    "state": "ACTIVE",
+    "n": 7
+   },
+   {
+    "state": "COMPLETED",
+    "n": 14
+   },
+   {
+    "state": "PAUSED_USER",
+    "n": 5
+   }
+  ],
+  "attempts": [
+   {
+    "status": "LOST",
+    "n": 8
+   },
+   {
+    "status": "COMMITTED",
+    "n": 361
+   }
+  ],
+  "events": {
+   "count": 28411,
+   "head": "28461"
+  },
+  "budget": [
+   {
+    "status": "open",
+    "settled": "0.000000",
+    "unknown": "0.000000",
+    "reserved": "0.019440"
+   },
+   {
+    "status": "settled",
+    "settled": "13.772068",
+    "unknown": "0.000000",
+    "reserved": "0.000000"
+   }
+  ],
+  "model": {
+   "calls": 4959,
+   "cost_usd": 13.562765
+  },
+  "orchestrator": {
+   "last_reconcile_at": "2026-09-24T17:23:03.240Z",
+   "reconcile_totals": {
+    "lost": 0,
+    "reconcileRequired": 0
+   },
+   "last_error": null
+  }
+ },
+ "notes": [
+  "A17 72h 验收仅在 run_kind=A17-full-72h 且 errors 无关紧要时可作为通过证据；",
+  "短时运行记录为部分浸泡测试：证明机制可运行、可观测、故障可恢复，不代表 72 小时稳定性。"
+ ]
+}

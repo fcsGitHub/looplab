@@ -1,0 +1,10 @@
+Independent verification of Fibonacci term #30 (F(0)=0, F(1)=1)
+
+Method: python3 -c "a,b=0,1\nfor _ in range(30): a,b=b,a+b\nprint(a)"
+Reference value: 832040
+
+t2 recorded stdout: NOT FOUND
+  - Workspace D:\project\looplab\data\workspaces\att_4b6950a5383845e7 is empty (0 files, verified via os.walk / os.listdir).
+  - No stdout.txt / output.txt / result.txt / t2_output.txt present.
+
+Comparison conclusion: INCONCLUSIVE (cannot compare) - t2 value unavailable.

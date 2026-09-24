@@ -77,7 +77,11 @@ export class OptimizerService {
     const verdict = assertOptimizerAuthorized({ epoch, backend: input.backend, mode: input.mode });
     if (!verdict.ok) throw new Error(verdict.reason);
 
-    const KNOWN_FAMILIES = ["algorithm-search.bin-packing", "algorithm-search.bin-packing-large"];
+    const KNOWN_FAMILIES = [
+      "algorithm-search.bin-packing",
+      "algorithm-search.bin-packing-large",
+      "algorithm-search.bin-packing-gap",
+    ];
     const taskpackId = input.taskpackId ?? "algorithm-search.bin-packing";
     if (!KNOWN_FAMILIES.includes(taskpackId)) {
       throw new Error(`unknown task family ${taskpackId}; known: ${KNOWN_FAMILIES.join(", ")}`);

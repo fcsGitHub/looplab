@@ -41,6 +41,8 @@ let idlePolls = 0; // polls with no claimable task: must NOT trigger model calls
 async function req(method: string, url: string, body?: unknown) {
   const res = await fetch(`${BASE}${url}`, {
     method,
+    // every request bounded: a hung request must fail loudly, not stall the soak
+    signal: AbortSignal.timeout(20_000),
     headers: {
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
       ...(cookie ? { cookie } : {}),
@@ -77,6 +79,9 @@ async function main() {
 
   const started = new Date();
   const endAt = started.getTime() + durationMs;
+  // budget guard measures THIS RUN's spend delta, not the platform's
+  // cumulative ledger (which already contains all historical metered spend)
+  const startCostUsd = Number(((await req("GET", "/v1/metrics")).json.model.cost_usd) ?? 0);
   let goalIdx = 0;
   let nextFaultAt = Date.now() + Math.min(60_000, durationMs / 4);
 
@@ -88,7 +93,12 @@ async function main() {
     try {
       // keep up to 3 active goals; completed/cancelled ones get replaced
       if (goals.length < 3 && goalIdx < 64) {
-        goals.push(await newGoal(goalIdx++));
+        const g = await newGoal(goalIdx++);
+        goals.push(g);
+        console.log(`[soak] cycle ${cycles}: goal ${g} created (${goals.length} active)`);
+      }
+      if (cycles % 10 === 0) {
+        console.log(`[soak] cycle ${cycles}: goals=${goals.length} errors=${errors} elapsed=${Math.round((Date.now() - started.getTime()) / 1000)}s`);
       }
 
       // fault injection window
@@ -115,10 +125,11 @@ async function main() {
         }
       }
 
-      // budget guard: abort the soak if spend exceeds the cap for this run
+      // budget guard: abort the soak if THIS RUN's spend exceeds the cap
       const m = (await req("GET", "/v1/metrics")).json;
-      if (Number(m.model.cost_usd) > Number(process.env.SOAK_MAX_USD ?? 3)) {
-        faults.push({ at: new Date().toISOString(), kind: "budget_cap_reached", detail: `spend $${m.model.cost_usd}` });
+      const runDeltaUsd = Number(m.model.cost_usd) - startCostUsd;
+      if (runDeltaUsd > Number(process.env.SOAK_MAX_USD ?? 3)) {
+        faults.push({ at: new Date().toISOString(), kind: "budget_cap_reached", detail: `run delta $${runDeltaUsd.toFixed(2)}` });
         break;
       }
       await new Promise((r) => setTimeout(r, pollMs));

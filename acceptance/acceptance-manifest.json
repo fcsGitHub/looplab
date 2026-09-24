@@ -154,9 +154,9 @@
    "requires_real_llm": true,
    "status": "PARTIAL",
    "evidence": [
-    "docs/evidence/soak/soak-*.json (5 分钟有界运行: 73 周期 / 0 错误 / 4 次注入)"
+    "docs/evidence/soak/ (5min bounded 2026-09-24 + 20min bounded 2026-09-25 with per-run budget guard)"
    ],
-   "note": "72h 全程未执行；脚本已备好 (--duration 72h)。短时运行不可标为通过。"
+   "note": "2026-09-25: soak harness hardened (per-run budget delta guard, request timeouts, per-cycle logs); partial runs only — 72h NOT executed"
   },
   {
    "id": "A18",

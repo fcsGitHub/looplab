@@ -1,0 +1,4 @@
+count: 100
+mean: 0.479569
+variance: 0.086157
+exit_code: 0

@@ -38,6 +38,7 @@
 | 故障注入（杀 worker） | **已执行（带保留）** | 实测击杀处于 RUNNING 的 victim；Windows 进程树击杀存在竞态（数次落在提交之后）。确定性覆盖见 A04/A05 自动化测试；账本取证报告 `docs/evidence/fault-injection/` |
 | Pi（@earendil-works）深度集成 | 延期 | npm 包已核验（ADR-0002）；AgentRuntimePort 由 DeepSeekLoopRuntime 实现，Pi 会话级适配留待后续 |
 | OS 级 worker 沙箱（容器/Job Object） | 延期 | 当前为语言级审计钩子 + 目录/路径限界；威胁模型已登记边界 |
+| A17 72h soak | **部分执行（扩大）** | 2026-09-25 追加 20 分钟有界浸泡（预算护栏语义修正为单次运行增量 + 请求超时 + 逐周期日志后执行）；72h 全程仍未执行，不能声称通过 |
 | GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 仍为后续 |
 | 参数训练（RL/微调） | 关闭 | 设计允许，非本期范围 |
 
@@ -111,3 +112,18 @@
 - 累计真实模型开销：第一轮约 $10.9（3952 次调用）；第二轮 epoch 试炼新增
   ≈$0.20（含作废运行的全部计量花费，见 TRIAL-VERDICT.md）。全部计入预算账本，
   可在 /v1/metrics 复核。
+
+## 第四轮迭代（2026-09-25）：间隙族试炼 — 改进闭环全程真实贯通
+
+- **间隙任务族** `algorithm-search.bin-packing-gap`：供给期筛选保证 FFD
+  至少 1 箱可回收（套件无标签，评测器不变，属基准选题）。
+- **等协议试炼**：现任与挑战者**双双 ELIGIBLE**（bins_avg 19.5→18.5，
+  delta=1.0）——独立收敛到同幅改进，结算按规则判平保留现任（诚实拒绝
+  无区分度证据下的纪元切换）。
+- **首个真实灰度发布**：rel_fc218733450544ba @ algorithm:bin-packing-gap
+  （canary，ACTIVE），回归监视通过；期间发生并纠正错范围发布事故
+  （incident-005：demo 脚本三元 scope 映射落入 else 分支），补上手动
+  回滚运维端点 `POST /v1/goals/:id/releases/:releaseId/rollback`。
+- **A17 证据加强**：soak 加固三处——预算护栏从"账本累计"修正为"单次运行
+  增量"（原实现对长生命周期账本必然秒退）、每次请求 20s 超时、逐周期进度
+  日志；20 分钟有界浸泡执行归档（`docs/evidence/soak/`）。

@@ -129,7 +129,9 @@ async function main() {
   if (challengerVerdict === "ELIGIBLE" && challengerCandidate) {
     const promo = await req("POST", `/v1/goals/${goalId}/evolution/promote`, {
       candidate_id: challengerCandidate,
-      scope: TASKPACK.includes("large") ? "algorithm:bin-packing-large" : "algorithm:bin-packing",
+      scope: TASKPACK === "algorithm-search.bin-packing" ? "algorithm:bin-packing"
+        : TASKPACK === "algorithm-search.bin-packing-large" ? "algorithm:bin-packing-large"
+        : "algorithm:bin-packing-gap",
       kind: "canary",
     });
     promotion = promo.json ?? { status: promo.status };
