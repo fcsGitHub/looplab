@@ -23,24 +23,40 @@ export class CapabilityGateway {
     private limits: { toolTimeoutMs: number; maxOutputBytes: number; maxChildProcesses: number },
   ) {}
 
+  /**
+   * Resolve a tool-supplied path against the workspace and enforce
+   * containment. The server-side PolicyGate resolves relative paths against
+   * the workspace when it decides "allow" — the executor MUST resolve the
+   * same way, or a relative path silently lands in the worker's process CWD
+   * (incident-006: repo-root litter from `workspace_write fib.py`).
+   */
+  private contain(p: string): string {
+    const root = path.resolve(this.workspaceDir);
+    const abs = path.resolve(root, p);
+    if (abs !== root && !abs.startsWith(root + path.sep)) {
+      throw new Error(`path escapes workspace: ${p}`);
+    }
+    return abs;
+  }
+
   async execute(tool: string, args: Record<string, unknown>): Promise<ExecResult> {
     const started = Date.now();
     try {
       switch (tool) {
         case "workspace_write": {
-          const p = String(args.path);
+          const p = this.contain(String(args.path));
           const content = String(args.content ?? "");
           await fs.mkdir(path.dirname(p), { recursive: true });
           await fs.writeFile(p, content, "utf8");
           return done(`wrote ${content.length} chars to ${path.basename(p)}`);
         }
         case "workspace_read": {
-          const p = String(args.path);
+          const p = this.contain(String(args.path));
           const content = await fs.readFile(p, "utf8");
           return done(content);
         }
         case "workspace_list": {
-          const root = String(args.path ?? this.workspaceDir);
+          const root = this.contain(String(args.path ?? this.workspaceDir));
           const entries = await walk(root, 60, 3);
           return done(entries.join("\n"));
         }

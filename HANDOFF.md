@@ -52,6 +52,12 @@
 - incident-002：run_python 允许绝对路径 → PEP 578 审计钩子全量隔离。
 - incident-003：修完钩子未重启旧 worker → 仓库根散落 ~80 文件（已归档）；
   runbook 增加「worker 修复后必须重启 + gw-hardening 断言」步骤。
+- incident-005：demo 脚本三元 scope 映射落入 else → 错范围灰度发布；
+  canary-check "no pointer" 立即暴露；手动回滚端点补齐后回滚→重发布→监视通过。
+- incident-006：workspace_write 相对路径按 worker 进程 CWD 解析（策略判定
+  与执行器解析不一致）→ soak 目标交付物散落仓库根（22 文件）。Gateway 新增
+  contain()（解析+收容，与 PolicyGate 一致），回归测试 4 项；文件归档
+  `docs/evidence/incident-006-workspace-write-cwd-litter/`。
 
 ## 问题账本（按影响排序）
 
