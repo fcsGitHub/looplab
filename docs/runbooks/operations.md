@@ -41,6 +41,11 @@ python -m venv .venv-gepa; .venv-gepa/Scripts/pip install gepa==0.1.4
 
 - **升级 TaskPack 评测器**：修改 `taskpacks/<id>/` 后执行 `npx tsx scripts/seal-suites.ts`
   （会刷新 data/taskpacks 与 sealed 的运行副本）。
+- **调度优先级**（A22）：goal 的 priority 1（最急）..9（最不急），默认 5；
+  claim 按 (priority, created_at) 排序——紧急目标抢占更早的积压，同级 FIFO。
+  改级：`POST /v1/goals/{id}/commands {"kind":"set_priority","payload":{"priority":1}}`
+  （任意状态可用、幂等、记 goal.priority_changed 事件）；会话首消息可带
+  `"priority": n` 直接建到对应层级。
 - **观察**：`GET /v1/metrics`（目标/attempt 状态分布、事件水位、模型用量与成本、
   supervisor 最近对账时间与 LOST/RECONCILE 计数、最后错误）。
 - **日志**：控制服务 stderr（含被拒请求）；事件账本 `events` 表为唯一事实。

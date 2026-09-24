@@ -116,14 +116,18 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
    */
   app.post("/v1/sessions/:id/messages", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
-    const { content } = req.body as any;
+    const { content, priority } = req.body as any;
     if (!content || !String(content).trim()) return reply.code(400).send({ error: "empty message" });
+    if (priority !== undefined && (!Number.isInteger(priority) || priority < 1 || priority > 9)) {
+      return reply.code(400).send({ error: "priority must be an integer 1..9 (1 = most urgent)" });
+    }
     const session = (await svc.db.query("SELECT * FROM chat_sessions WHERE id=$1 AND owner_id=$2", [(req.params as any).id, req.user!.id])).rows[0];
     if (!session) return reply.code(404).send({ error: "session not found" });
 
     if (!session.goal_id) {
       const out = await svc.goals.createGoalFromMessage({
         sessionId: session.id, userId: req.user!.id, text: String(content), projectId: session.project_id,
+        priority,
       });
       return reply.code(202).send({
         message_id: out.messageId, goal_id: out.goalId, note: "goal created; graph planning dispatched", plan_note: out.plan,

@@ -107,6 +107,7 @@ export class GoalService {
   /** User sends the first message of a session -> create goal + plan graph. */
   async createGoalFromMessage(input: {
     sessionId: string; userId: string; text: string; projectId: string;
+    priority?: number;
   }): Promise<{ goalId: string; messageId: string; plan: string }> {
     const goalId = newId("goal");
     const messageId = newId("msg");
@@ -114,9 +115,9 @@ export class GoalService {
 
     await this.db.tx(async (client) => {
       await client.query(
-        `INSERT INTO goals (id, project_id, session_id, owner_id, title, state)
-         VALUES ($1,$2,$3,$4,$5,'DRAFT')`,
-        [goalId, input.projectId, input.sessionId, input.userId, title],
+        `INSERT INTO goals (id, project_id, session_id, owner_id, title, state, priority)
+         VALUES ($1,$2,$3,$4,$5,'DRAFT',$6)`,
+        [goalId, input.projectId, input.sessionId, input.userId, title, input.priority ?? 5],
       );
       await client.query(
         `INSERT INTO goal_versions (goal_id, version, objective, created_by) VALUES ($1,1,$2,$3)`,
@@ -291,6 +292,13 @@ export class GoalService {
           valid = ["ACTIVE", "PAUSED_USER", "WAITING_RESOURCE", "BLOCKED_INPUT"].includes(goal.state);
           if (!valid) reason = `cannot revise from ${goal.state}`;
           break;
+        case "set_priority": {
+          // ordering metadata, not a state transition: allowed from any state
+          const p = input.payload.priority;
+          valid = Number.isInteger(p) && (p as number) >= 1 && (p as number) <= 9;
+          if (!valid) reason = `priority must be an integer 1..9, got ${JSON.stringify(p)}`;
+          break;
+        }
         default:
           valid = false; reason = `unknown command kind ${input.kind}`;
       }
@@ -374,6 +382,19 @@ export class GoalService {
         case "revise":
           applied = false; // applied asynchronously by plan revision below
           break;
+        case "set_priority": {
+          const to = input.payload.priority as number;
+          await client.query(
+            `UPDATE goals SET priority=$2, updated_at=now(), row_version=row_version+1 WHERE id=$1`,
+            [input.goalId, to],
+          );
+          await EventStore.append(client, {
+            aggregateType: "goal", aggregateId: input.goalId, eventType: "goal.priority_changed",
+            goalId: input.goalId, actor: { kind: "user", id: input.userId }, causationId: input.commandId,
+            payload: { from: Number(goal.priority), to },
+          });
+          break;
+        }
       }
       if (applied) {
         await client.query("UPDATE commands SET status='APPLIED', applied_at=now() WHERE id=$1", [cmdRowId]);

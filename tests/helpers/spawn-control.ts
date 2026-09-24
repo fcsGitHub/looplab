@@ -94,13 +94,13 @@ export function fixture(env: TestEnv) {
     },
     async createGoalWithTasks(userId: string, projectId: string, sessionId: string, tasks: {
       key: string; role?: string; title?: string; depends_on?: string[];
-    }[], goalState = "ACTIVE", budgetCapUsd = "5") {
+    }[], goalState = "ACTIVE", budgetCapUsd = "5", priority = 5) {
       const goalId = `goal_${randomBytes(4).toString("hex")}`;
       const graphId = `graph_${randomBytes(4).toString("hex")}`;
       await db.query(
-        `INSERT INTO goals (id, project_id, session_id, owner_id, title, state, current_version, budget_cap_usd)
-         VALUES ($1,$2,$3,$4,'fixture goal',$5,1,$6)`,
-        [goalId, projectId, sessionId, userId, goalState, budgetCapUsd],
+        `INSERT INTO goals (id, project_id, session_id, owner_id, title, state, current_version, budget_cap_usd, priority)
+         VALUES ($1,$2,$3,$4,'fixture goal',$5,1,$6,$7)`,
+        [goalId, projectId, sessionId, userId, goalState, budgetCapUsd, priority],
       );
       await db.query(
         "INSERT INTO goal_versions (goal_id, version, objective, created_by) VALUES ($1,1,'fixture','test')",
@@ -120,9 +120,16 @@ export function fixture(env: TestEnv) {
       return { goalId, graphId };
     },
     async cancelOtherReadyTasks(goalId: string) {
-      // test isolation: the scheduler claims the OLDEST ready task across all
-      // goals (correct platform behavior); tests park other goals' tasks.
+      // test isolation: the scheduler claims across ALL goals by
+      // (priority, created_at) — correct platform behavior — so tests park
+      // other goals' READY tasks. Priority-aware variant: cancelExcept(goals[]).
       await db.query("UPDATE tasks SET state='CANCELLED' WHERE goal_id <> $1 AND state IN ('READY','WAITING')", [goalId]);
+    },
+    async cancelExceptKeep(keepGoalIds: string[]) {
+      await db.query(
+        "UPDATE tasks SET state='CANCELLED' WHERE goal_id <> ALL($1) AND state IN ('READY','WAITING')",
+        [keepGoalIds],
+      );
     },
     async setGoalState(goalId: string, state: string) {
       await db.query("UPDATE goals SET state=$2, updated_at=now() WHERE id=$1", [goalId, state]);

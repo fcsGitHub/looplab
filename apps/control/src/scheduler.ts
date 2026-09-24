@@ -84,7 +84,10 @@ export class Scheduler {
                WHERE d.goal_id = t.goal_id
                  AND d.node_key = ANY (t.depends_on)
                  AND d.state NOT IN ('SUCCEEDED','CANCELLED','ABORTED'))
-          ORDER BY t.created_at ASC
+          -- priority tier first (1 = most urgent), FIFO within a tier
+          -- (problem ledger #3). A budget-refused goal does not head-of-line
+          -- block lower tiers: the loop below just moves to the next candidate.
+          ORDER BY g.priority ASC, t.created_at ASC
           LIMIT 10
           FOR UPDATE OF t SKIP LOCKED`,
       );

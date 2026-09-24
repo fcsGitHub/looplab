@@ -1,6 +1,6 @@
 {
- "manifest_version": "5",
- "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation",
+ "manifest_version": "6",
+ "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling",
  "goal": "IMPLEMENTATION_GOAL.md",
  "test_root": "tests/",
  "evidence_root": "docs/evidence/",
@@ -11,7 +11,7 @@
   "BLOCKED",
   "NOT_RUN"
  ],
- "last_full_run": "2026-09-24",
+ "last_full_run": "2026-09-24 (60 passed / 2 skipped)",
  "cases": [
   {
    "id": "A01",
@@ -202,6 +202,19 @@
     "HANDOFF.md#问题账本-5",
     "workers/agent-worker/src/propagate.ts",
     "workers/agent-worker/src/snapshot.ts"
+   ]
+  },
+  {
+   "id": "A22",
+   "scenario": "调度优先级：紧急目标抢占积压（问题账本 #3）",
+   "expected": "claim 排序 (priority ASC, created_at ASC)：高优先级胜过更早的低优先级；set_priority 命令即时改级（幂等、事件 goal.priority_changed）；同级保持 FIFO；1..9 之外在命令与首消息两个入口都被拒绝且无部分写入",
+   "test": "tests/integration/a22-priority-scheduling.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "apps/control/src/migrations/005_priority.sql",
+    "apps/control/src/scheduler.ts (claim ORDER BY g.priority, t.created_at)",
+    "HANDOFF.md#问题账本-3"
    ]
   }
  ],

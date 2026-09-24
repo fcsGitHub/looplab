@@ -75,7 +75,14 @@
 1. verify/审查任务偶发因模型不按 RESULT 格式收尾而失败重试（消耗预算）；
    已通过「临近步数上限强制收尾」缓解，仍偶发。
 2. E2E 中 SSE 断连重连已实现游标续传，但未覆盖「服务重启中的重连」路径。
-3. 调度 FIFO 会先消化历史积压目标（本次演示中已观察到）；优先级策略未实现。
+3. **已关闭（第七轮）**：调度优先级落地——goals 增加 priority
+   （1 最急 .. 9 最不急，默认 5，CHECK 约束）；claim 候选排序改为
+   (priority ASC, created_at ASC)：紧急目标抢占更早的积压，同级保持 FIFO；
+   预算不足的目标不阻塞更低层级的候选（循环跳到下一个候选）。用户经
+   set_priority 命令即时改级（任意状态可用、幂等、走命令/事件审计，
+   事件 goal.priority_changed 记录 from/to）；会话首消息可携带 priority
+   建目标。1..9 之外的值在两个入口都被拒绝且无部分写入。
+   测试：`tests/integration/a22-priority-scheduling.test.ts`（3 项）。
 4. **已关闭（2026-09-25）**：图 revise 现在计算受影响子图（变更节点+传递后继），
    只重建受影响节点，保留有效前缀（不受影响已提交节点不重跑、不受影响在途任务
    保留冻结规格）；调度器依赖判定改为 (goal, node_key) 作用域以支持跨版本前缀；
@@ -84,7 +91,7 @@
 
 ## 复现命令
 
-见 README「测试」一节。全套：`npx vitest run`（40+ 用例）、
+见 README「测试」一节。全套：`npx vitest run`（60+ 用例）、
 `DEEPSEEK_API_KEY=… npx playwright test`、
 `npx tsx scripts/demo-evolution.ts`（演进闭环演示）、
 `npx tsx scripts/demo-optimizer-epoch.ts`（元演进 epoch 试炼，需 `.venv-gepa`）。
