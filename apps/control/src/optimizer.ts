@@ -71,12 +71,17 @@ export class OptimizerService {
     maxLlmCostUsd: number;
     reflection: "gateway" | "scripted";
     gatewayUrl?: string;
+    taskpackId?: string;
   }): Promise<{ runId: string; token: string; manifest: unknown }> {
     const epoch = await this.currentEpoch();
     const verdict = assertOptimizerAuthorized({ epoch, backend: input.backend, mode: input.mode });
     if (!verdict.ok) throw new Error(verdict.reason);
 
-    const taskpackId = "algorithm-search.bin-packing";
+    const KNOWN_FAMILIES = ["algorithm-search.bin-packing", "algorithm-search.bin-packing-large"];
+    const taskpackId = input.taskpackId ?? "algorithm-search.bin-packing";
+    if (!KNOWN_FAMILIES.includes(taskpackId)) {
+      throw new Error(`unknown task family ${taskpackId}; known: ${KNOWN_FAMILIES.join(", ")}`);
+    }
     const tpDir = path.join(this.config.dataDir, "taskpacks", taskpackId);
     const runId = `opt_${randomBytes(6).toString("hex")}`;
     const token = `optk_${randomBytes(24).toString("hex")}`;
@@ -272,18 +277,34 @@ export class OptimizerService {
     reflection: "gateway" | "scripted";
     baseUrl: string;
     timeoutMs?: number;
+    taskpackId?: string;
   }): Promise<{ runId: string; proposalIds: string[]; usage: OptimizerUsage }> {
     const { runId, token } = await this.createRun({
       goalId: input.goalId, backend: input.backend, mode: input.mode,
       maxMetricCalls: input.maxMetricCalls, maxLlmCostUsd: input.maxLlmCostUsd,
       reflection: input.reflection,
       gatewayUrl: `${input.baseUrl}/v1/optimizer/llm`,
+      taskpackId: input.taskpackId,
     });
     const row = (await this.db.query(`SELECT manifest FROM optimizer_runs WHERE id=$1`, [runId])).rows[0];
     if (!row) throw new Error(`optimizer run ${runId} disappeared`);
     const manifest = row.manifest;
     const manifestPath = path.join(manifest.out_dir, "manifest.json");
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+    // The incumbent optimizer is an in-process control-plane strategy (one
+    // real LLM proposal), registered on the SAME port and settling through
+    // the SAME completeRun contract — equal protocol, equal metric budget.
+    if (input.backend === "simple-baseline@1") {
+      const payload = await this.runSimpleBaselineInProcess(runId, manifest);
+      try {
+        const res = await this.completeRun({ token, payload });
+        return { ...res, usage: payload.usage };
+      } catch (err) {
+        await this.failRun(runId, `complete rejected: ${err instanceof Error ? err.message.slice(0, 300) : err}`);
+        throw err;
+      }
+    }
 
     const backendScript = path.resolve(path.join(rootDir(), "optimizers", "gepa-backend", "backend.py"));
     if (!existsSync(backendScript)) throw new Error(`optimizer backend missing: ${backendScript}`);
@@ -377,7 +398,62 @@ export class OptimizerService {
     }
     return { switched: verdict.switched, nextEpochIndex, reason: verdict.reason };
   }
+
+  /**
+   * The incumbent optimizer's strategy: ONE real LLM proposal from the
+   * baseline source + dev-suite shape (the §08 simple baseline, unchanged).
+   * Runs in-process because it IS control-plane code; its proposal still goes
+   * through completeRun for identical contract treatment.
+   */
+  private async runSimpleBaselineInProcess(runId: string, manifest: any): Promise<{ proposals: OptimizerProposal[]; usage: OptimizerUsage; stopped_reason: string }> {
+    const baseline = readFileSync(manifest.baseline_path, "utf8");
+    const suite = JSON.parse(readFileSync(manifest.dev_suite_path, "utf8"));
+    const p0 = suite.problems[0];
+    const result = await this.llm.call({
+      goalId: manifest.goal_id,
+      scope: "evolution_search",
+      kind: "optimizer_llm",
+      model: "chat",
+      maxTokens: 2500,
+      temperature: 0.5,
+      idempotencyKey: `${runId}_llm_1`,
+      actor: { kind: "optimizer", id: "simple-baseline@1" },
+      messages: [
+        { role: "system", content: SIMPLE_BASELINE_SYSTEM },
+        { role: "user", content: `任务族：${manifest.taskpack_id}（${suite.problems.length} 个实例，每实例 ${p0.items.length} 件物品，容量 ${p0.capacity}）\n父版本源码（${manifest.component.entry_export}）：\n\`\`\`\n${baseline.slice(0, 8000)}\n\`\`\`\n请提出一个最小补丁。注意：父版本是 First-Fit Decreasing；请探索一个有实质差异的放置策略，不要复述父版本，否则评测会因零改进而判为证据不足。` },
+      ],
+    });
+    const text = result.message.content ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+      return { proposals: [], usage: { metric_calls: 0, llm_calls: 1, prompt_tokens: result.usage.prompt_tokens, completion_tokens: result.usage.completion_tokens, cost_usd: 0, model: result.model }, stopped_reason: "no parsable proposal" };
+    }
+    const parsed = JSON.parse(match[0]);
+    const cost = estimateCostUsd(result.usage, this.config.costPer1kPromptUsd, this.config.costPer1kCompletionUsd);
+    await this.db.tx(async (client) => {
+      await client.query(`UPDATE optimizer_runs SET llm_calls = llm_calls + 1, spent_usd = spent_usd + $2 WHERE id=$1`, [runId, cost]);
+    });
+    const proposal: OptimizerProposal = {
+      mechanism: String(parsed.mechanism ?? "simple-baseline proposal"),
+      changed_summary: String(parsed.changed_summary ?? ""),
+      candidate_code: String(parsed.candidate_code ?? ""),
+      expected_effect: String(parsed.expected_effect ?? ""),
+      train_score: null, val_score: null,
+    };
+    if (!proposal.candidate_code) {
+      return { proposals: [], usage: { metric_calls: 0, llm_calls: 1, prompt_tokens: result.usage.prompt_tokens, completion_tokens: result.usage.completion_tokens, cost_usd: Number(cost.toFixed(6)), model: result.model }, stopped_reason: "proposal had no candidate code" };
+    }
+    return {
+      proposals: [proposal],
+      usage: { metric_calls: 0, llm_calls: 1, prompt_tokens: result.usage.prompt_tokens, completion_tokens: result.usage.completion_tokens, cost_usd: Number(cost.toFixed(6)), model: result.model },
+      stopped_reason: "completed",
+    };
+  }
 }
+
+const SIMPLE_BASELINE_SYSTEM = `你是 LoopLab 的改进提案器。给定任务族与父版本源代码，提出一个最小补丁。
+输出 JSON：{"mechanism":"机制解释","changed_summary":"改了什么","candidate_code":"完整的替换文件内容","expected_effect":"预期效果"}
+只改允许的文件。代码必须完整可运行，保持 pack(items, capacity) 接口，仅用标准库。`;
 
 function rootDir(): string {
   // apps/control/src → repo root is three levels up

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import {
   newId, canTransition, GOAL_TRANSITIONS, TASK_TRANSITIONS, compileGraph,
+  affectedSubgraph,
   type GraphContract, type CompiledGraph,
 } from "@looplab/contracts";
 import { EventStore } from "./eventstore.js";
@@ -137,8 +138,11 @@ export class GoalService {
     return { goalId, messageId, plan };
   }
 
-  /** Plan a graph with a real model call, then materialize tasks. */
-  async planAndInstantiate(goalId: string, objective: string, version: number, userId: string): Promise<string> {
+  /**
+   * Plan a graph with a real model call (NO persistence). Deterministic
+   * single-node fallback when the planner fails/unparsable — honest, never fake.
+   */
+  private async planGraph(goalId: string, objective: string, version: number): Promise<{ graph: GraphContract; compiled: CompiledGraph; note: string }> {
     let parsed: GraphContract | null = null;
     let planNote = "";
     try {
@@ -189,6 +193,16 @@ export class GoalService {
       };
       planNote = planNote || "使用单节点兜底规划";
     }
+    const compiled = compileGraph(parsed);
+    if (!compiled.ok) {
+      throw new Error(`planned graph failed validation: ${compiled.errors.map((e) => e.message).join("; ").slice(0, 200)}`);
+    }
+    return { graph: parsed, compiled: compiled.value, note: planNote };
+  }
+
+  /** Plan a graph with a real model call, then materialize tasks. */
+  async planAndInstantiate(goalId: string, objective: string, version: number, userId: string): Promise<string> {
+    const { graph: parsed, note: planNote } = await this.planGraph(goalId, objective, version);
 
     const graphId = newId("graph");
     const digest = createHash("sha256").update(JSON.stringify(parsed)).digest("hex");
@@ -368,11 +382,53 @@ export class GoalService {
     });
   }
 
-  /** revise: new goal version + re-plan. Returns after the real planning call. */
-  async applyRevision(goalId: string, newText: string, userId: string): Promise<void> {
+  /**
+   * revise (§六.3): new goal version + graph, re-running ONLY the affected
+   * subgraph (changed nodes + transitive successors) and KEEPING the valid
+   * prefix — unaffected committed nodes are never re-run, unaffected live
+   * tasks keep their frozen spec under the old graph version. `providedGraph`
+   * (a user/agent-supplied edit) takes precedence over LLM re-planning and is
+   * validated by compileGraph either way.
+   */
+  async applyRevision(goalId: string, newText: string, userId: string, providedGraph?: unknown): Promise<void> {
     const goal = (await this.db.query("SELECT * FROM goals WHERE id=$1", [goalId])).rows[0];
     if (!goal) throw new Error("goal not found");
     const nextVersion = goal.current_version + 1;
+
+    // 1) obtain the new graph (explicit edit wins; else re-plan via LLM)
+    let planned: { graph: GraphContract; compiled: CompiledGraph; note: string };
+    if (providedGraph !== undefined) {
+      const compiled = compileGraph(providedGraph);
+      if (!compiled.ok) {
+        throw new Error(`provided graph invalid: ${compiled.errors.map((e) => e.message).join("; ").slice(0, 300)}`);
+      }
+      planned = { graph: compiled.value.graph, compiled: compiled.value, note: "explicit graph edit (compile-validated)" };
+    } else {
+      planned = await this.planGraph(goalId, newText, nextVersion);
+    }
+
+    // 2) diff against the CURRENT graph: affected = changed/added node + all
+    //    transitive successors (contract: affectedSubgraph)
+    const oldRow = (await this.db.query(
+      "SELECT nodes FROM graph_versions WHERE goal_id=$1 AND version=$2", [goalId, goal.current_version],
+    )).rows[0];
+    const oldSpecs = new Map<string, string>();
+    for (const n of (oldRow?.nodes ?? []) as GraphContract["nodes"]) {
+      oldSpecs.set(n.key, nodeFingerprint(n));
+    }
+    const changedRoots: string[] = [];
+    for (const n of planned.graph.nodes) {
+      const old = oldSpecs.get(n.key);
+      if (old === undefined || old !== nodeFingerprint(n)) changedRoots.push(n.key);
+    }
+    const affected = new Set<string>();
+    for (const root of changedRoots) {
+      for (const k of affectedSubgraph(planned.compiled, root)) affected.add(k);
+    }
+
+    // 3) persist new version + re-instantiate ONLY affected nodes
+    const graphId = newId("graph");
+    const digest = createHash("sha256").update(JSON.stringify(planned.graph)).digest("hex");
     await this.db.tx(async (client) => {
       await client.query(
         `INSERT INTO goal_versions (goal_id, version, objective, created_by) VALUES ($1,$2,$3,$4)`,
@@ -385,24 +441,79 @@ export class GoalService {
       await EventStore.append(client, {
         aggregateType: "goal", aggregateId: goalId, eventType: "goal.revised",
         goalId, goalVersion: nextVersion, actor: { kind: "user", id: userId },
-        payload: { objective: newText },
+        payload: {
+          objective: newText, plan_note: planned.note,
+          changed_roots: changedRoots,
+          affected_nodes: [...affected],
+        },
       });
-      // cancel old-graph tasks that have not succeeded; running attempts keep
-      // their frozen spec (graph versions are frozen; §六.3)
-      const stale = await client.query(
-        `UPDATE tasks SET state='CANCELLED', updated_at=now()
-          WHERE goal_id=$1 AND state IN ('READY','WAITING') RETURNING id, node_key`,
-        [goalId],
+
+      await client.query(
+        `INSERT INTO graph_versions (id, goal_id, version, nodes, loops, digest) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [graphId, goalId, nextVersion, JSON.stringify(planned.graph.nodes), JSON.stringify(planned.graph.loops), digest],
       );
-      if (stale.rows.length) {
+
+      // cancel stale live rows of AFFECTED nodes (in-flight attempts of any
+      // state keep their frozen spec; their results produce no successors)
+      let cancelled: string[] = [];
+      if (affected.size > 0) {
+        const stale = await client.query(
+          `UPDATE tasks SET state='CANCELLED', updated_at=now()
+            WHERE goal_id=$1 AND state IN ('READY','WAITING','FAILED')
+              AND node_key = ANY($2) RETURNING node_key`,
+          [goalId, [...affected]],
+        );
+        cancelled = stale.rows.map((r: any) => r.node_key);
+      }
+
+      // valid prefix = succeeded nodes NOT in the affected set: they keep
+      // their SUCCEEDED rows and are NOT re-created (§六.3 保留有效前缀)
+      const validPrefix = (await client.query(
+        `SELECT DISTINCT node_key FROM tasks
+          WHERE goal_id=$1 AND state='SUCCEEDED' AND NOT (node_key = ANY($2))`,
+        [goalId, [...affected]],
+      )).rows.map((r: any) => r.node_key);
+
+      let created = 0;
+      for (const n of planned.graph.nodes) {
+        if (!affected.has(n.key)) continue; // unaffected: keep existing rows
+        await client.query(
+          `INSERT INTO tasks (id, graph_version_id, goal_id, node_key, role, kind, title, instruction,
+             depends_on, input_refs, expected_output, risk_class, state)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'READY')`,
+          [newId("task"), graphId, goalId, n.key, n.role, n.kind, n.title, n.instruction,
+            n.depends_on ?? [], JSON.stringify(n.input_refs ?? []),
+            n.expected_output ?? null, n.risk_class ?? "low"],
+        );
+        created++;
+      }
+
+      if (cancelled.length) {
         await EventStore.append(client, {
           aggregateType: "goal", aggregateId: goalId, eventType: "goal.graph_invalidated",
           goalId, goalVersion: goal.current_version,
-          payload: { cancelled_tasks: stale.rows.map((r: any) => r.node_key), note: "running attempts keep their frozen spec; their results are recorded but produce no successors" },
+          payload: { cancelled_tasks: cancelled, note: "only affected nodes invalidated; running attempts keep their frozen spec and produce no successors" },
         });
       }
+      await EventStore.append(client, {
+        aggregateType: "goal", aggregateId: goalId, eventType: "goal.graph_planned",
+        goalId, goalVersion: nextVersion, actor: { kind: "agent", id: "planner" },
+        payload: {
+          graph_version_id: graphId, revision: true,
+          nodes: planned.graph.nodes.map((n: any) => ({ key: n.key, role: n.role, title: n.title })),
+          affected_nodes: [...affected], created_tasks: created,
+          valid_prefix: validPrefix, note: planned.note,
+        },
+      });
+
+      const g = (await client.query("SELECT state FROM goals WHERE id=$1 FOR UPDATE", [goalId])).rows[0];
+      const next = g.state === "DRAFT" ? "ACTIVE" : g.state;
+      await client.query(
+        "UPDATE goals SET current_version=$2, state=$3, updated_at=now(), row_version=row_version+1 WHERE id=$1",
+        [goalId, nextVersion, next],
+      );
     });
-    await this.planAndInstantiate(goalId, newText, nextVersion, userId);
+
     await this.db.query(
       `UPDATE commands SET status='APPLIED', applied_at=now()
         WHERE goal_id=$1 AND kind='revise' AND status='ACCEPTED'`,
@@ -580,4 +691,14 @@ export class GoalService {
       return true;
     });
   }
+}
+
+/** Stable spec fingerprint for revision diffing (§六.3 changed-node detection). */
+function nodeFingerprint(n: GraphContract["nodes"][number]): string {
+  const spec = {
+    role: n.role, kind: n.kind, title: n.title, instruction: n.instruction,
+    depends_on: [...(n.depends_on ?? [])].sort(), input_refs: n.input_refs ?? [],
+    expected_output: n.expected_output ?? null, risk_class: n.risk_class ?? "low",
+  };
+  return createHash("sha256").update(JSON.stringify(spec)).digest("hex");
 }

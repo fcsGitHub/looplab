@@ -1,19 +1,22 @@
-// §6.8 meta-evolution epoch trial against a RUNNING control service with the
-// REAL model: incumbent (simple-baseline@1) vs challenger (gepa@0.1.4) get
-// comparable budgets; the challenger's best proposal goes through the SAME
-// independent dev/selection/release evaluation; the epoch switches only on a
-// strict margin, and a switch takes effect for the NEXT epoch.
+// §六.8 meta-evolution epoch trial against a RUNNING control service with the
+// REAL model — equal protocol for both backends on the SAME frozen task
+// family:
+//   incumbent (simple-baseline@1, active mode)  -> proposal -> independent eval
+//   challenger (gepa@0.1.4, epoch_trial mode)   -> proposals -> independent eval
+//   settleEpochTrial(deltas from the selection suite, strict margin)
 //
-// Honest accounting: reflection calls are metered by the control proxy
-// (optimizer_runs.spent_usd + budget ledger events); metric calls are capped
-// by MaxMetricCallsStopper inside the backend. Evidence lands in
-// docs/evidence/optimizer-epoch-trial/.
+// Environment:
+//   TASKPACK          task family (default algorithm-search.bin-packing-large)
+//   MAX_METRIC_CALLS  challenger's internal eval budget (default 80)
+//   MAX_LLM_USD       challenger's reflection LLM cost cap (default 0.6)
+//   EPOCH_MARGIN      selection-suite improvement margin for a switch (0.05)
 //
 // Prereqs: control on :8080 with DEEPSEEK_API_KEY; .venv-gepa installed;
 // suites provisioned (npx tsx scripts/seal-suites.ts).
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const BASE = process.env.CONTROL_URL ?? "http://localhost:8080";
+const TASKPACK = process.env.TASKPACK ?? "algorithm-search.bin-packing-large";
 const MARGIN = Number(process.env.EPOCH_MARGIN ?? 0.05);
 let cookie = "";
 
@@ -34,14 +37,19 @@ async function req(method: string, url: string, body?: unknown) {
   return { status: res.status, json };
 }
 
-function selectionDelta(evalJson: any): { delta: number | null; verdict: string } {
-  // minimize metric: positive delta = improvement over the frozen baseline
-  const layerResults = evalJson?.final?.results ?? evalJson?.final ?? null;
-  const verdict = String(evalJson?.verdict ?? "UNKNOWN");
-  const primary = Number(layerResults?.primary_value);
-  const baseline = Number(layerResults?.baseline_value);
-  if (!Number.isFinite(primary) || !Number.isFinite(baseline)) return { delta: null, verdict };
-  return { delta: Number((baseline - primary).toFixed(4)), verdict };
+/** Independent selection-suite delta for one candidate (positive = better). */
+async function evaluateAndDelta(goalId: string, candidateId: string) {
+  const ev = await req("POST", `/v1/goals/${goalId}/evolution/evaluate`, {
+    candidate_id: candidateId, taskpack_id: TASKPACK,
+    contract_version: TASKPACK.includes("large") ? "bin-packing-large/v1" : "bin-packing/v1",
+  });
+  const verdict = String(ev.json?.verdict ?? "UNKNOWN");
+  const layer = ev.json?.final ?? null;
+  const primary = Number(layer?.primary_value);
+  const baseline = Number(layer?.baseline_value);
+  const delta = Number.isFinite(primary) && Number.isFinite(baseline)
+    ? Number((baseline - primary).toFixed(4)) : null; // minimize metric
+  return { verdict, primary, baseline, delta };
 }
 
 async function main() {
@@ -49,99 +57,106 @@ async function main() {
   if (login.status !== 200) throw new Error("login failed; register the researcher user first");
   const startedAt = new Date().toISOString();
 
-  // 1) goal container for the trial; paused immediately — the USER's pause is
-  //    authoritative while the optimizer trial runs its own budgeted process.
+  // 1) goal container, paused immediately (user pause is authoritative)
   const projects = (await req("GET", "/v1/projects")).json.projects;
   const proj = projects.find((p: any) => p.slug === "algorithm-search");
-  const ses = (await req("POST", "/v1/sessions", { project_id: proj.id, title: "元演进 epoch 试炼" })).json;
+  const ses = (await req("POST", "/v1/sessions", { project_id: proj.id, title: `元演进试炼 ${TASKPACK}` })).json;
   const msg = (await req("POST", `/v1/sessions/${ses.id}/messages`, {
-    content: "epoch 试炼：等预算比较 simple-baseline 与 gepa 在装箱任务族上的改进能力",
+    content: `epoch 试炼：等预算比较 simple-baseline 与 gepa 在 ${TASKPACK} 上的改进能力`,
   })).json;
   const goalId = msg.goal_id;
-  const pause = await req("POST", `/v1/goals/${goalId}/commands`, { kind: "pause" });
-  console.log("goal:", goalId, "| pause accepted:", pause.status === 202 || pause.status === 200);
+  await req("POST", `/v1/goals/${goalId}/commands`, { kind: "pause" });
+  console.log("goal:", goalId, "| task family:", TASKPACK);
 
-  // 2) challenger round: real GEPA with REAL reflection calls through the
-  //    metered proxy (epoch-trial mode; active mode would be refused — epoch 0
-  //    belongs to simple-baseline@1).
-  console.log("running gepa epoch-trial round (real reflection via metered proxy)…");
-  const t0 = Date.now();
-  const round = await req("POST", `/v1/goals/${goalId}/optimizer/run-round`, {
-    backend: "gepa@0.1.4", mode: "epoch_trial",
-    max_metric_calls: Number(process.env.MAX_METRIC_CALLS ?? 80),
-    max_llm_cost_usd: Number(process.env.MAX_LLM_USD ?? 0.4),
-    reflection: "gateway",
-    timeout_ms: 25 * 60_000,
+  const maxMetricCalls = Number(process.env.MAX_METRIC_CALLS ?? 80);
+  const maxLlmUsd = Number(process.env.MAX_LLM_USD ?? 0.6);
+
+  // ---- incumbent round (active mode; ONE proposal; same port) -------------
+  const tInc = Date.now();
+  const inc = await req("POST", `/v1/goals/${goalId}/optimizer/run-round`, {
+    backend: "simple-baseline@1", mode: "active",
+    max_metric_calls: maxMetricCalls, max_llm_cost_usd: 0.1,
+    reflection: "gateway", taskpack_id: TASKPACK, timeout_ms: 5 * 60_000,
   });
-  if (round.status !== 202) throw new Error(`optimizer round failed: ${JSON.stringify(round.json).slice(0, 600)}`);
-  const { runId, proposalIds, usage } = round.json;
-  console.log(`gepa round ${runId}: ${proposalIds.length} proposals in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-  console.log("  usage:", JSON.stringify(usage));
+  if (inc.status !== 202) throw new Error(`incumbent round failed: ${JSON.stringify(inc.json).slice(0, 400)}`);
+  console.log(`incumbent round ${inc.json.runId}: ${inc.json.proposalIds.length} proposal(s) in ${((Date.now() - tInc) / 1000).toFixed(0)}s | usage:`, JSON.stringify(inc.json.usage));
 
-  const writeEvidence = (extra: Record<string, unknown>, name: string) => {
-    const outDir = "docs/evidence/optimizer-epoch-trial";
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(`${outDir}/${name}-${goalId}.json`, JSON.stringify(extra, null, 1));
-  };
-  if (proposalIds.length === 0) {
-    // honest empty result: no mutation beat the seed inside the budget
-    console.log("challenger produced no usable proposal → epoch stays with the incumbent");
-    writeEvidence({
-      kind: "meta_evolution_epoch_trial", started_at: startedAt, finished_at: new Date().toISOString(),
-      goal_id: goalId, optimizer_run: runId, challenger: "gepa@0.1.4", incumbent: "simple-baseline@1",
-      margin: MARGIN, challenger_internal_usage: usage, proposals: [],
-      outcome: "no_accepted_mutation: 优化器内部严格改进验收未通过任何变体（证据不足，保留现任）",
-    }, "trial");
-    await req("POST", `/v1/goals/${goalId}/commands`, { kind: "cancel" });
-    return;
+  let incumbentImprovement: number | null = null;
+  let incumbentVerdict = "NO_PROPOSAL";
+  if (inc.json.proposalIds.length > 0) {
+    const built = await req("POST", `/v1/goals/${goalId}/evolution/build`, { proposal_id: inc.json.proposalIds[0] });
+    if (built.status !== 202) throw new Error(`incumbent build failed: ${JSON.stringify(built.json)}`);
+    const r = await evaluateAndDelta(goalId, built.json.candidate_id);
+    incumbentImprovement = r.delta;
+    incumbentVerdict = r.verdict;
+    console.log(`incumbent independent eval: ${r.verdict} primary=${r.primary} baseline=${r.baseline} delta=${r.delta}`);
   }
 
-  // 3) best challenger proposal (by internal val score from the event payload)
-  // build the challenger's best proposal (proposalIds[0] = GEPA best) and let
-  // the independent evaluator judge it; remaining proposals stay in the
-  // lineage as PROPOSED for later rounds.
-  const built = await req("POST", `/v1/goals/${goalId}/evolution/build`, { proposal_id: proposalIds[0] });
-  if (built.status !== 202) throw new Error(`build failed: ${JSON.stringify(built.json)}`);
-  const candId = built.json.candidate_id;
-  console.log("challenger candidate built:", candId);
-
-  const ev = await req("POST", `/v1/goals/${goalId}/evolution/evaluate`, {
-    candidate_id: candId, taskpack_id: "algorithm-search.bin-packing", contract_version: "bin-packing/v1",
+  // ---- challenger round (epoch-trial mode; real reflection via proxy) ------
+  const tCh = Date.now();
+  const cha = await req("POST", `/v1/goals/${goalId}/optimizer/run-round`, {
+    backend: "gepa@0.1.4", mode: "epoch_trial",
+    max_metric_calls: maxMetricCalls, max_llm_cost_usd: maxLlmUsd,
+    reflection: "gateway", taskpack_id: TASKPACK, timeout_ms: 30 * 60_000,
   });
-  console.log("independent evaluation:", JSON.stringify(ev.json).slice(0, 400));
-  const { delta, verdict } = selectionDelta(ev.json);
+  if (cha.status !== 202) throw new Error(`challenger round failed: ${JSON.stringify(cha.json).slice(0, 400)}`);
+  console.log(`challenger round ${cha.json.runId}: ${cha.json.proposalIds.length} proposal(s) in ${((Date.now() - tCh) / 1000).toFixed(0)}s | usage:`, JSON.stringify(cha.json.usage));
 
-  // 4) settle the epoch: incumbent's historical improvement is 0 by definition
-  //    (it produced the frozen baseline); challenger must win by > MARGIN.
+  let challengerImprovement: number | null = null;
+  let challengerVerdict = "NO_PROPOSAL";
+  let challengerCandidate: string | null = null;
+  if (cha.json.proposalIds.length > 0) {
+    const built = await req("POST", `/v1/goals/${goalId}/evolution/build`, { proposal_id: cha.json.proposalIds[0] });
+    if (built.status !== 202) throw new Error(`challenger build failed: ${JSON.stringify(built.json)}`);
+    challengerCandidate = built.json.candidate_id;
+    const r = await evaluateAndDelta(goalId, challengerCandidate);
+    challengerImprovement = r.delta;
+    challengerVerdict = r.verdict;
+    console.log(`challenger independent eval: ${r.verdict} primary=${r.primary} baseline=${r.baseline} delta=${r.delta}`);
+  }
+
+  // ---- settlement ----------------------------------------------------------
   const settle = await req("POST", "/v1/meta/epoch/settle", {
     incumbent: "simple-baseline@1", challenger: "gepa@0.1.4",
-    incumbent_improvement: 0, challenger_improvement: delta ?? 0, min_margin: MARGIN,
+    incumbent_improvement: incumbentImprovement ?? 0,
+    challenger_improvement: challengerImprovement ?? 0,
+    min_margin: MARGIN,
   });
   console.log("epoch settlement:", settle.status, JSON.stringify(settle.json));
 
-  // 5) optional operator-driven canary promotion if the pipeline said ELIGIBLE
+  // ---- operator decision on release (independent of the epoch switch) ------
   let promotion: any = null;
-  if (verdict === "ELIGIBLE") {
+  if (challengerVerdict === "ELIGIBLE" && challengerCandidate) {
     const promo = await req("POST", `/v1/goals/${goalId}/evolution/promote`, {
-      candidate_id: candId, scope: "algorithm:bin-packing", kind: "canary",
+      candidate_id: challengerCandidate,
+      scope: TASKPACK.includes("large") ? "algorithm:bin-packing-large" : "algorithm:bin-packing",
+      kind: "canary",
     });
     promotion = promo.json ?? { status: promo.status };
-    console.log("canary promotion (operator decision, not the optimizer's):", JSON.stringify(promotion));
+    console.log("canary promotion (operator decision):", JSON.stringify(promotion));
   }
 
+  // ---- evidence ------------------------------------------------------------
   const evidence = {
-    kind: "meta_evolution_epoch_trial", started_at: startedAt, finished_at: new Date().toISOString(),
-    goal_id: goalId, optimizer_run: runId, challenger: "gepa@0.1.4", incumbent: "simple-baseline@1",
-    margin: MARGIN, challenger_internal_usage: usage, proposals: proposalIds,
-    candidate: candId, independent_verdict: verdict, selection_delta: delta,
+    kind: "meta_evolution_epoch_trial_v2", started_at: startedAt, finished_at: new Date().toISOString(),
+    goal_id: goalId, task_family: TASKPACK, margin: MARGIN,
+    incumbent: {
+      backend: "simple-baseline@1", run: inc.json.runId, usage: inc.json.usage,
+      proposals: inc.json.proposalIds.length, verdict: incumbentVerdict, delta: incumbentImprovement,
+    },
+    challenger: {
+      backend: "gepa@0.1.4", run: cha.json.runId, usage: cha.json.usage,
+      proposals: cha.json.proposalIds.length, verdict: challengerVerdict, delta: challengerImprovement,
+      candidate: challengerCandidate,
+    },
     settlement: settle.json, promotion,
-    note: "reflection calls metered via control proxy (see optimizer_runs + budget events); scripted fixtures were NOT used in this run",
+    protocol: "equal metric-call budget grant; independent dev/selection/release evaluation for both backends; strict-margin switch, ties = 证据不足保留现任",
+    note: "all reflection/proposal LLM calls metered via the control proxy; scripted fixtures were NOT used in this run",
   };
   const outDir = "docs/evidence/optimizer-epoch-trial";
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(`${outDir}/trial-${goalId}.json`, JSON.stringify(evidence, null, 1));
-  console.log("evidence written:", `${outDir}/trial-${goalId}.json`);
-  console.log("resume the goal:", `POST /v1/goals/${goalId}/commands {"kind":"resume"}`);
+  writeFileSync(`${outDir}/trial-${TASKPACK}-${goalId}.json`, JSON.stringify(evidence, null, 1));
+  console.log("evidence written:", `${outDir}/trial-${TASKPACK}-${goalId}.json`);
 }
 
 main().catch((err) => {

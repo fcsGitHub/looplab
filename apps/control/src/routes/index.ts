@@ -439,6 +439,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         maxLlmCostUsd: Number(b.max_llm_cost_usd ?? 0.5),
         reflection: b.reflection === "scripted" ? "scripted" : "gateway",
         gatewayUrl: `${req.protocol}://${req.headers.host}/v1/optimizer/llm`,
+        taskpackId: b.taskpack_id ? String(b.taskpack_id) : undefined,
       });
       return reply.code(201).send(res);
     } catch (err) {
@@ -467,6 +468,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         reflection: b.reflection === "scripted" ? "scripted" : "gateway",
         baseUrl: `${req.protocol}://${req.headers.host}`,
         timeoutMs: b.timeout_ms ? Number(b.timeout_ms) : undefined,
+        taskpackId: b.taskpack_id ? String(b.taskpack_id) : undefined,
       });
       return reply.code(202).send(res);
     } catch (err) {

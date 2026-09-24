@@ -1,6 +1,6 @@
 {
- "manifest_version": "3",
- "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + OptimizerPort/epoch (§5.3, §6.8) as A19",
+ "manifest_version": "4",
+ "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + OptimizerPort/epoch (§5.3, §6.8) as A19 + revise affected-subgraph (§六.3) as A20",
  "goal": "IMPLEMENTATION_GOAL.md",
  "test_root": "tests/",
  "evidence_root": "docs/evidence/",
@@ -177,6 +177,18 @@
     "docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md",
     "docs/evidence/optimizer-epoch-trial/trial-goal_66e3eb801e694c89.json",
     "docs/evidence/incident-004-optimizer-sandbox-and-budget/README.md"
+   ]
+  },
+  {
+   "id": "A20",
+   "scenario": "图 revise 只重跑受影响节点及后继，保留有效前缀（§六.3）",
+   "expected": "变更节点+传递后继被重建；未受影响的已提交节点不重跑；跨图版本依赖按 (goal, node_key) 解析；空 diff 零扰动；非法显式图拒绝且不卡死",
+   "test": "tests/integration/a20-revise-affected.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "HANDOFF.md#第三轮迭代",
+    "packages/contracts/src/graph.ts#affectedSubgraph"
    ]
   }
  ],

@@ -73,11 +73,17 @@ export class Scheduler {
            JOIN goals g ON g.id = t.goal_id
           WHERE (t.state = 'READY' OR (t.state = 'FAILED' AND t.failure_count < 3))
             AND g.state = 'ACTIVE'
+            -- dependency scope is (goal, node_key), NOT graph version: a
+            -- revision keeps valid-prefix tasks under their original frozen
+            -- graph version and re-creates only affected nodes as new rows.
+            -- A predecessor key is satisfied when EVERY task row carrying it
+            -- is terminal (SUCCEEDED, or CANCELLED/ABORTED history) — a live
+            -- or failed row keeps dependents parked until it resolves.
             AND NOT EXISTS (
               SELECT 1 FROM tasks d
-               WHERE d.graph_version_id = t.graph_version_id
+               WHERE d.goal_id = t.goal_id
                  AND d.node_key = ANY (t.depends_on)
-                 AND d.state <> 'SUCCEEDED')
+                 AND d.state NOT IN ('SUCCEEDED','CANCELLED','ABORTED'))
           ORDER BY t.created_at ASC
           LIMIT 10
           FOR UPDATE OF t SKIP LOCKED`,

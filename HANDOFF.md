@@ -58,7 +58,11 @@
    已通过「临近步数上限强制收尾」缓解，仍偶发。
 2. E2E 中 SSE 断连重连已实现游标续传，但未覆盖「服务重启中的重连」路径。
 3. 调度 FIFO 会先消化历史积压目标（本次演示中已观察到）；优先级策略未实现。
-4. 图 revise 后仅取消旧 READY/WAITING 任务，受影响后继的自动重算未实现（编译器 API 已备）。
+4. **已关闭（2026-09-25）**：图 revise 现在计算受影响子图（变更节点+传递后继），
+   只重建受影响节点，保留有效前缀（不受影响已提交节点不重跑、不受影响在途任务
+   保留冻结规格）；调度器依赖判定改为 (goal, node_key) 作用域以支持跨版本前缀；
+   revise 负载支持显式携带新图（compileGraph 验证，非法图 → 命令 FAILED + 事件，
+   不卡死编排器）。测试：`tests/integration/a20-revise-affected.test.ts`（4 项）。
 
 ## 复现命令
 
@@ -85,9 +89,24 @@
 - **测试**：单元 `tests/unit/optimizer-contracts.test.ts`（10）+
   集成 `tests/integration/a19-optimizer-port.test.ts`（6）；验收清单 v3 增 A19。
 
+## 第三轮迭代：等协议试炼 + 大实例族 + revise 受影响子图（2026-09-25）
+
+- **等协议元演进**：现任 simple-baseline@1 注册进 OptimizerPort（进程内一次
+  真实 LLM 提案，同一 completeRun 合同），与挑战者在同一冻结任务族上比较；
+  结算只看独立 selection 评测的严格 margin。
+- **大实例族**：`algorithm-search.bin-packing-large`（220 物品/实例，seed
+  archive 与小族隔离），seal-suites 一并 provision；OptimizerService/taskpack
+  参数化（route 透传 taskpack_id）。
+- **试炼结果**（等协议，goal_400e49a41ee644ab）：现任 delta=0（INCONCLUSIVE）、
+  挑战者无提案（80/80 评估、13 反射、$0.021）→ 证据不足，保留现任。
+  解读：FFD 在均匀随机实例上接近贪心最优，LLM 提案同样只能打平——这是任务族
+  信息量结论，不是平台缺陷；有区分度的下一次试炼需要已知次优间隙的实例族。
+  见 `TRIAL-VERDICT.md` 补充裁决。
+- **A20（§六.3）**：revise 受影响子图重算落地（见问题账本 #4 关闭记录）。
+
 ## 最终验证（2026-09-24）
 
-- `DEEPSEEK_API_KEY=… npx vitest run`：第一轮 25 passed / 1 skipped / 0 failed。
+- `DEEPSEEK_API_KEY=… npx vitest run`：第一轮 25 passed；第三轮 45 passed / 1 skipped / 0 failed（A19+A20 在内）。
 - `npx playwright test`：2 passed（真实浏览器主路径 + 未认证 SSE 拒绝）。
 - 累计真实模型开销：第一轮约 $10.9（3952 次调用）；第二轮 epoch 试炼新增
   ≈$0.20（含作废运行的全部计量花费，见 TRIAL-VERDICT.md）。全部计入预算账本，

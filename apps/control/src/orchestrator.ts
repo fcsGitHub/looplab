@@ -2,6 +2,7 @@
 // wake-ups, async command application. NO LLM here — supervision is rule-based.
 import { Scheduler } from "./scheduler.js";
 import { GoalService } from "./goals.js";
+import { EventStore } from "./eventstore.js";
 import type { Db } from "./db.js";
 
 export class Orchestrator {
@@ -40,7 +41,8 @@ export class Orchestrator {
 
     // 3) accepted-but-not-applied revise commands (planning happens async)
     const revisions = await this.db.query(
-      `SELECT c.goal_id, c.payload->>'content' AS content, c.actor->>'id' AS user_id
+      `SELECT c.goal_id, c.payload->>'content' AS content,
+              c.payload->'graph' AS provided_graph, c.actor->>'id' AS user_id
          FROM commands c WHERE c.kind='revise' AND c.status='ACCEPTED'
          AND NOT EXISTS (
            SELECT 1 FROM goal_versions gv
@@ -48,8 +50,27 @@ export class Orchestrator {
         ORDER BY c.created_at LIMIT 5`,
     );
     for (const r of revisions.rows) {
-      if (r.content) {
-        await this.goals.applyRevision(r.goal_id, r.content, r.user_id ?? "system");
+      if (!r.content) continue;
+      try {
+        // payload.graph (explicit user/agent edit) takes precedence over
+        // re-planning; applyRevision validates it via compileGraph
+        await this.goals.applyRevision(r.goal_id, r.content, r.user_id ?? "system", r.provided_graph ?? undefined);
+      } catch (err) {
+        // an invalid explicit graph must not wedge the orchestrator: record
+        // the failure on the command and in the ledger, keep ticking
+        const reason = err instanceof Error ? err.message.slice(0, 300) : String(err);
+        await this.db.tx(async (client) => {
+          await client.query(
+            `UPDATE commands SET status='FAILED', reject_reason=$2
+              WHERE goal_id=$1 AND kind='revise' AND status='ACCEPTED'`,
+            [r.goal_id, reason],
+          );
+          await EventStore.append(client, {
+            aggregateType: "goal", aggregateId: r.goal_id, eventType: "goal.revise_failed",
+            goalId: r.goal_id, actor: { kind: "system", id: "orchestrator" },
+            payload: { reason },
+          });
+        });
       }
     }
     this.lastError = null;

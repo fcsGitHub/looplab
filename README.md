@@ -54,12 +54,15 @@ WORKER_ID=dev-01 npx tsx workers/agent-worker/src/index.ts
 + `/v1/goals/:id/optimizer/*`、`/v1/meta/epoch*` 为控制面；反射 LLM 经
 计量代理计账（run token 鉴权，模型密钥不出控制进程）。后端 `gepa==0.1.4`
 （`optimizers/gepa-backend/`），真实模型 epoch 试炼与裁决：
-`docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。
+`docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。现任 simple-baseline@1
+也注册在同一端口上以等协议竞争；任务族可参数化（`TASKPACK=algorithm-search.bin-packing-large`，
+大实例族 seed archive 与小族隔离）。图 revise 按 §六.3 只重跑受影响节点及后继、
+保留有效前缀（A20）。
 
 ## 测试
 
 ```bash
-npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18、A19；A17 长跑除外）
+npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18–A20；A17 长跑除外）
 DEEPSEEK_API_KEY=sk-xxx npx vitest run tests/contract/deepseek-smoke.test.ts  # 真实模型烟测
 npx playwright test                             # 真实浏览器端到端（需控制服务+worker 运行中）
 npx tsx tests/soak/soak.ts --duration 10m       # 浸泡测试（72h 用 --duration 72h）

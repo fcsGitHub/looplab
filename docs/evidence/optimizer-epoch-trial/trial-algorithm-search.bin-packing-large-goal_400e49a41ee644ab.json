@@ -1,0 +1,47 @@
+{
+ "kind": "meta_evolution_epoch_trial_v2",
+ "started_at": "2026-09-24T16:31:21.754Z",
+ "finished_at": "2026-09-24T16:33:06.126Z",
+ "goal_id": "goal_400e49a41ee644ab",
+ "task_family": "algorithm-search.bin-packing-large",
+ "margin": 0.05,
+ "incumbent": {
+  "backend": "simple-baseline@1",
+  "run": "opt_49457787ffd3",
+  "usage": {
+   "metric_calls": 0,
+   "llm_calls": 1,
+   "prompt_tokens": 387,
+   "completion_tokens": 553,
+   "cost_usd": 0.000713,
+   "model": "deepseek-flash"
+  },
+  "proposals": 1,
+  "verdict": "INCONCLUSIVE",
+  "delta": 0
+ },
+ "challenger": {
+  "backend": "gepa@0.1.4",
+  "run": "opt_3a7d475afe6a",
+  "usage": {
+   "metric_calls": 80,
+   "llm_calls": 13,
+   "prompt_tokens": 10126,
+   "completion_tokens": 16824,
+   "cost_usd": 0.021242,
+   "model": "deepseek-flash"
+  },
+  "proposals": 0,
+  "verdict": "NO_PROPOSAL",
+  "delta": null,
+  "candidate": null
+ },
+ "settlement": {
+  "switched": false,
+  "nextEpochIndex": null,
+  "reason": "difference 0.0000 within margin 0.05: 证据不足，保留现任"
+ },
+ "promotion": null,
+ "protocol": "equal metric-call budget grant; independent dev/selection/release evaluation for both backends; strict-margin switch, ties = 证据不足保留现任",
+ "note": "all reflection/proposal LLM calls metered via the control proxy; scripted fixtures were NOT used in this run"
+}

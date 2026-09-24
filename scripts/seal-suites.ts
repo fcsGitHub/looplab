@@ -2,7 +2,7 @@
 //   data/taskpacks/<id>/            evaluator.py, baseline.py, dev/selection suites (public)
 //   sealed/<id>/                    release suite (sealed labels; resolvable only by the evaluator)
 // Suites are generated from distinct seed ranges (dev ≠ selection ≠ release).
-import { mkdirSync, copyFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"), "..");
@@ -67,6 +67,45 @@ export function provisionInto(rootDataDir = dataTaskpacks, rootSealedDir = seale
   writeJson(path.join(rootSealedDir, "algorithm-search.bin-packing", "release-suite.json"), {
     ...binPackBase, layer: "release",
     problems: binPackingProblems("rel", 3000, 12, 60),
+  });
+
+  // ---- algorithm-search.bin-packing-large ---------------------------------
+  // Independent task family for meta-evolution epoch trials (§六.8): larger
+  // instances widen the FFD-vs-OPT gap, giving challengers real room. Seed
+  // archive is DISJOINT from the small family (4xxx), so trial results on
+  // this family never touch the small-family release pointer.
+  const lsrc = path.join(ROOT, "taskpacks", "algorithm-search");
+  const ldst = path.join(rootDataDir, "algorithm-search.bin-packing-large");
+  mkdirSync(ldst, { recursive: true });
+  for (const f of ["evaluator.py", "baseline.py", "candidate_runner.py", "taskpack.json"]) {
+    copyFileSync(path.join(lsrc, f), path.join(ldst, f));
+    console.log("copied", f);
+  }
+  const largeBase = {
+    ...binPackBase,
+    taskpack_id: "algorithm-search.bin-packing-large",
+    contract_version: "bin-packing-large/v1",
+    time_limit_ms_per_problem: 2000,
+  };
+  // the copied taskpack.json still names the small family — rewrite identity
+  const ltp = JSON.parse(readFileSync(path.join(ldst, "taskpack.json"), "utf8"));
+  ltp.id = "algorithm-search.bin-packing-large";
+  ltp.baseline.evaluation_ref = "suite://bin-packing-large/dev-v1";
+  ltp.validation.dev_suite_ref = "suite://bin-packing-large/dev-v1";
+  ltp.validation.selection_suite_ref = "suite://bin-packing-large/selection-v1";
+  ltp.validation.release_suite_ref = "sealed://bin-packing-large/release-v1";
+  writeJson(path.join(ldst, "taskpack.json"), ltp);
+  writeJson(path.join(ldst, "dev-suite.json"), {
+    ...largeBase, layer: "dev",
+    problems: binPackingProblems("dev", 4000, 10, 220),
+  });
+  writeJson(path.join(ldst, "selection-suite.json"), {
+    ...largeBase, layer: "selection",
+    problems: binPackingProblems("sel", 5000, 10, 220),
+  });
+  writeJson(path.join(rootSealedDir, "algorithm-search.bin-packing-large", "release-suite.json"), {
+    ...largeBase, layer: "release",
+    problems: binPackingProblems("rel", 6000, 10, 220),
   });
 
   // ---- harness-improvement ------------------------------------------------

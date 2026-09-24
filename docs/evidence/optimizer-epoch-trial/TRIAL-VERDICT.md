@@ -36,3 +36,38 @@
 - 下一次有区分度的实验：更大规模实例（items≥200，FFD 与 OPT 差距拉大）或
   接受 `improvement_or_equal` 验收 + 成本多目标（装箱数 × 运行时间）；
 - 复活条件：任务族重置（新 seed archive）或预算 ≥ 10×（≥500 metric calls）。
+
+---
+
+# 补充裁决（2026-09-25）：大实例族 + 等协议试炼
+
+按上一节"复活条件"重启试炼：新任务族 `algorithm-search.bin-packing-large`
+（每实例 220 件物品、容量 100，seed archive 4xxx/5xxx/6xxx 与小族完全隔离），
+并把现任优化器 simple-baseline@1 也注册到 OptimizerPort 上以**同一协议**竞争
+（一次真实 LLM 提案，经同一 completeRun 合同与独立三层评测）。
+
+## 结果（goal_400e49a41ee644ab）
+
+| 后端 | 模式 | 用量 | 独立评测（selection） |
+|---|---|---|---|
+| simple-baseline@1（现任） | active | 1 次 LLM，$0.0007 | INCONCLUSIVE：bins_avg 114.7 vs 114.7，delta=0 |
+| gepa@0.1.4（挑战者） | epoch_trial | 13 次反射 + 80/80 评估，$0.0212 | 无提案：严格改进验收未通过任何变体 |
+
+结算：`difference 0.0000 within margin 0.05: 证据不足，保留现任`（epoch 0 不变）。
+
+## 解读
+
+- FFD 在均匀随机装箱实例上接近贪心最优：220 件物品下 simple-baseline 的
+  LLM 提案同样只能打平（delta=0），与挑战者的空结果互相印证；
+- 预算内（80 metric calls ≈ 10 次迭代）GEPA 未能找到严格改进——**不是平台
+  缺陷，是任务族信息量不足**；下一纪元若要产出有区分度的试炼，需要：
+  1. 存在已知次优间隙的实例族（如几乎所有 optimal 装箱基准集，
+     FF/BFD 与 OPT 有 2-11% 已知差距的构造性实例）；
+  2. 或把验收改为 improvement_or_equal + 成本多目标。
+- 平台侧本轮真正关闭的是协议对称性：现任与挑战者现在走完全相同的
+  注册、预算、评测与结算路径，历史对照（现任 delta 恒为 0 的假设）不再需要。
+
+## 成本
+
+本轮试炼真实模型开销 ≈ $0.022（全部计量入账）。证据：
+`trial-algorithm-search.bin-packing-large-goal_400e49a41ee644ab.json`。
