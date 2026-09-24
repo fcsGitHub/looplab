@@ -18,3 +18,25 @@
 ## 后果
 - 垂直链路 100% 真实（真模型、真工具、真账本），且满足「一个调度权威」。
 - Pi 深度集成（session branch 恢复等）标记为延期增强项，验收清单不含伪造的 Pi 验收。
+
+## 修订（2026-09-25）：Pi 契约测试 + PiLoopRuntime 适配器落地
+
+按本 ADR 承诺的「先写小型契约测试，再锁定版本」执行完毕：
+
+- **版本锁定**：`@earendil-works/pi-agent-core@0.87.1` + `@earendil-works/pi-ai@0.87.1`
+  （--save-exact，npm 2026-09-25 实查仍在更新）。
+- **契约测试**（确定性，faux provider 驱动，无网络）：
+  `tests/contract/pi-agent-core.test.ts` — 事件顺序（agent_start→turn_start→
+  message_*→tool_execution_*→turn_end→agent_end）、自定义工具执行、
+  beforeToolCall 阻断（控制面工具门的挂点）、steer 转录语义、abort+waitForIdle、
+  transcript JSON 可序列化/可恢复（checkpoint/restore 材料）、版本锁定断言。
+- **`PiLoopRuntime`**（`workers/agent-worker/src/pi-runtime.ts`）：pi 循环为运行时，
+  `streamFn` 注入计量网关（OpenAI 格式互转，密钥不出控制面），工具经
+  CapabilityGateway（incident-006 后的 contain 收容），steer/abort/drain/
+  checkpoint/restore 映射 AgentRuntimePort。
+- **真实模型烟测**：`tests/contract/pi-runtime-smoke.test.ts` — pi 循环经
+  计量 transport 驱动真实 DeepSeek 完成工具任务（转录含 assistant+toolResult，
+  用量>0，产物落在沙箱内），通过。
+- **生产接线状态（如实）**：worker 守护进程默认运行时仍为 DeepSeekLoopRuntime；
+  PiLoopRuntime 已具备同端口能力并验证到烟测级，接管生产任务（心跳/检查点/
+  RESULT 解析完全对齐 agent-loop）列为后续增强，不虚报。

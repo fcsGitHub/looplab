@@ -36,7 +36,7 @@
 |---|---|---|
 | A17 72h soak | **部分执行** | 已跑 5 分钟有界浸泡（73 周期 / 0 错误 / 4 次故障注入，报告 `docs/evidence/soak/`）；72h 全程未执行，脚本已备好（`--duration 72h`），不能声称通过 |
 | 故障注入（杀 worker） | **已执行（带保留）** | 实测击杀处于 RUNNING 的 victim；Windows 进程树击杀存在竞态（数次落在提交之后）。确定性覆盖见 A04/A05 自动化测试；账本取证报告 `docs/evidence/fault-injection/` |
-| Pi（@earendil-works）深度集成 | 延期 | npm 包已核验（ADR-0002）；AgentRuntimePort 由 DeepSeekLoopRuntime 实现，Pi 会话级适配留待后续 |
+| Pi（@earendil-works）集成 | **契约测试+适配器落地**（第四轮） | 锁定 pi-agent-core/pi-ai 0.87.1；6 项确定性契约测试（faux provider）+ PiLoopRuntime（streamFn 注入计量网关、工具接 CapabilityGateway）+ 真实模型烟测通过；生产 worker 默认运行时仍为 DeepSeekLoopRuntime，Pi 接管生产任务列为后续 |
 | OS 级 worker 沙箱（容器/Job Object） | 延期 | 当前为语言级审计钩子 + 目录/路径限界；威胁模型已登记边界 |
 | A17 72h soak | **部分执行（扩大）** | 2026-09-25 追加 20 分钟有界浸泡（预算护栏语义修正为单次运行增量 + 请求超时 + 逐周期日志后执行）；72h 全程仍未执行，不能声称通过 |
 | GEPA 后端（OptimizerPort） | **已接入**（第二轮迭代） | `gepa==0.1.4`（PyPI 核验，自研适配器 `optimizers/gepa-backend/`）；真实模型 epoch 试炼已运行，裁决"证据不足，保留现任"——见 `docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。ShinkaEvolve/OpenEvolve 仍为后续 |
