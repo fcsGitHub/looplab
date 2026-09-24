@@ -72,6 +72,13 @@ export class ControlClient {
       body: new Uint8Array(body),
     }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
   }
+  async downloadPropagated(attemptId: string, workerId: string, leaseEpoch: number, digest: string): Promise<Buffer | null> {
+    const res = await fetch(
+      `${this.baseUrl}/v1/attempts/${attemptId}/propagated/${digest}?worker_id=${encodeURIComponent(workerId)}&lease_epoch=${leaseEpoch}`,
+    );
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  }
   commit(attemptId: string, workerId: string, payload: Record<string, unknown>) {
     return this.req("POST", `/v1/attempts/${attemptId}/commit`, { worker_id: workerId, ...payload });
   }

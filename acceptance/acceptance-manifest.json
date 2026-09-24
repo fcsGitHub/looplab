@@ -1,6 +1,6 @@
 {
- "manifest_version": "4",
- "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + OptimizerPort/epoch (§5.3, §6.8) as A19 + revise affected-subgraph (§六.3) as A20",
+ "manifest_version": "5",
+ "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation",
  "goal": "IMPLEMENTATION_GOAL.md",
  "test_root": "tests/",
  "evidence_root": "docs/evidence/",
@@ -189,6 +189,19 @@
    "evidence": [
     "HANDOFF.md#第三轮迭代",
     "packages/contracts/src/graph.ts#affectedSubgraph"
+   ]
+  },
+  {
+   "id": "A21",
+   "scenario": "跨 attempt 产物传播：前驱交付物进入后继工作区（问题账本 #5）",
+   "expected": "claim 时 spec 携带前驱产物清单；围栏下载端点只服务授权 digest（错 token 409、未授权 403）；worker 物化进工作区",
+   "test": "tests/integration/a21-propagation.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "HANDOFF.md#问题账本-5",
+    "workers/agent-worker/src/propagate.ts",
+    "workers/agent-worker/src/snapshot.ts"
    ]
   }
  ],

@@ -142,7 +142,10 @@ export class AttemptsService {
   async commit(input: { workerId: string; payload: unknown }) {
     const body = CommitPayloadSchema.parse(input.payload);
     return this.db.tx(async (client) => {
-      const att = await this.requireAttempt(client, body.attempt_id, input.workerId, body.lease_epoch, [body.expected_status]);
+      // STARTED is a valid commit origin: text-only runs never execute tools
+      // and therefore never transition STARTED->RUNNING via a checkpoint
+      const att = await this.requireAttempt(client, body.attempt_id, input.workerId, body.lease_epoch,
+        ["STARTED", "RUNNING"].includes(body.expected_status) ? [body.expected_status] : ["RUNNING"]);
       // verify artifacts exist in the object store before accepting results
       for (const a of body.artifacts) {
         if (!this.objects.has(a.digest)) throw new FencingError(`artifact ${a.digest} missing from object store`);

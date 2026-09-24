@@ -653,6 +653,30 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
+  app.get("/v1/attempts/:id/propagated/:digest", async (req, reply) => {
+    // worker-fenced materialization download: the digest must be in THIS
+    // attempt's propagated list (claim-time resolved), so a worker can only
+    // fetch the predecessor inputs it was granted
+    const { id, digest } = req.params as any;
+    const worker_id = String((req.query as any).worker_id ?? "");
+    const lease_epoch = Number((req.query as any).lease_epoch ?? 0);
+    const att = (await svc.db.query("SELECT * FROM attempts WHERE id=$1", [id])).rows[0];
+    if (!att) return reply.code(404).send({ error: "unknown attempt" });
+    if (att.worker_id !== worker_id || Number(att.lease_epoch) !== lease_epoch) {
+      return reply.code(409).send({ error: "fencing", reason: "stale fencing token" });
+    }
+    const spec = (await svc.db.query("SELECT spec FROM attempt_specs WHERE attempt_id=$1", [id])).rows[0]?.spec;
+    const granted = (spec?.propagated_artifacts ?? []).some((p: any) => p.digest === digest);
+    if (!granted) return reply.code(403).send({ error: "digest not granted for this attempt" });
+    const row = (await svc.db.query("SELECT * FROM artifacts WHERE digest=$1 AND scope='task'", [digest])).rows[0];
+    if (!row) return reply.code(404).send({ error: "artifact not found" });
+    const buf = await svc.objects.get(row.digest);
+    if (!buf) return reply.code(404).send({ error: "object missing" });
+    reply.header("content-type", row.media_type);
+    reply.header("x-artifact-name", encodeURIComponent(row.name));
+    return buf;
+  });
+
   app.post("/v1/artifacts", async (req, reply) => {
     const body = req.body as Buffer;
     const headers = req.headers as any;

@@ -6,6 +6,8 @@
 import type { RunSpec } from "@looplab/contracts";
 import type { ControlClient } from "./control-client.js";
 import { CapabilityGateway, sha256 } from "./capability-gateway.js";
+import { materializePropagated } from "./propagate.js";
+import { snapshotWorkspaceArtifacts } from "./snapshot.js";
 
 export interface LoopOutcome {
   outcome: "SUCCEEDED" | "FAILED";
@@ -84,6 +86,12 @@ export class AgentLoop {
     try {
       await this.client.start(this.spec.attempt_id, this.workerId, this.spec.lease.epoch);
     } catch { /* already STARTED is fine */ }
+
+    // cross-attempt propagation: predecessor deliverables into this workspace
+    const propagated = await materializePropagated(this.client, this.spec, this.workerId).catch(() => [] as string[]);
+    if (propagated.length) {
+      messages.push({ role: "user", content: `[系统] 前序任务交付物已放入工作区：${propagated.join(", ")}` });
+    }
 
     const toolDefs = this.spec.allowed_tools.map((t) => ({
       type: "function" as const,
@@ -252,13 +260,23 @@ export class AgentLoop {
       } catch { /* missing file: recorded as missing in summary */ }
     }
 
+    // deterministic snapshot: deliverables are registered even when the model
+    // omits them from RESULT.files (ledger #5 part 2)
+    const snapshot = await snapshotWorkspaceArtifacts(this.client, this.spec, this.spec.sandbox.workspace_dir);
+    const byName = new Map(artifacts.map((a) => [a.name, a]));
+    for (const snap of snapshot) {
+      if (!byName.has(snap.name)) {
+        byName.set(snap.name, { name: snap.name, media_type: snap.media_type, digest: snap.digest, size_bytes: snap.size_bytes });
+      }
+    }
+
     const aborted = this.abortRequested;
     const outcome: "SUCCEEDED" | "FAILED" = aborted ? "FAILED" : (parsed?.outcome ?? (finalText ? "SUCCEEDED" : "FAILED"));
     return {
       outcome,
       summary: parsed?.summary ?? finalText?.slice(0, 800) ?? (aborted ? `已中止：${this.lastHeartbeat.reason}` : "无输出"),
       verification: parsed?.verification ?? null,
-      artifacts,
+      artifacts: [...byName.values()],
       usage: { ...usage, unknown_settlement: false },
       steps,
     };

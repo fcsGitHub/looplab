@@ -102,6 +102,29 @@ export class Scheduler {
     });
   }
 
+  /**
+   * Predecessor deliverables for a claimed task (problem ledger #5):
+   * task-scope artifacts from the LATEST committed attempt of every SUCCEEDED
+   * predecessor node, name-deduplicated (newest wins), capped. Resolution is
+   * deterministic and dependency-based — no planner cooperation required.
+   */
+  private async resolvePredecessorArtifacts(client: any, task: any): Promise<Array<{ name: string; digest: string; from_task_key: string }>> {
+    if (!task.depends_on?.length) return [];
+    const res = await client.query(
+      `SELECT DISTINCT ON (art.name) art.name, art.digest, d.node_key AS from_task_key
+         FROM tasks d
+         JOIN attempts a ON a.task_id = d.id AND a.status = 'COMMITTED'
+         JOIN artifacts art ON art.producer_run = a.id AND art.scope = 'task'
+        WHERE d.goal_id = $1
+          AND d.node_key = ANY($2)
+          AND d.state = 'SUCCEEDED'
+        ORDER BY art.name, a.ended_at DESC NULLS LAST
+        LIMIT 20`,
+      [task.goal_id, task.depends_on],
+    );
+    return res.rows.map((r: any) => ({ name: String(r.name), digest: String(r.digest), from_task_key: String(r.from_task_key) }));
+  }
+
   private async maybeWaitForResource(client: any, goalId: string) {
     // flip ACTIVE -> WAITING_RESOURCE once; reversible when budget frees up
     await client.query(
@@ -168,6 +191,9 @@ export class Scheduler {
       },
       sandbox: { workspace_dir: workspaceDir, python_executable: "python" },
       steering_mode: "next_turn",
+      // cross-attempt propagation (ledger #5): resolve predecessor deliverables
+      // so successors start with their inputs materialized in the workspace
+      propagated_artifacts: await this.resolvePredecessorArtifacts(client, task),
     });
     const specDigest = createHash("sha256").update(JSON.stringify(spec)).digest("hex");
 

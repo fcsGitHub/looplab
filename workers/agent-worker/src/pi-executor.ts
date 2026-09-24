@@ -20,6 +20,8 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import type { ControlClient } from "./control-client.js";
 import { CapabilityGateway, sha256 } from "./capability-gateway.js";
 import { PiLoopRuntime } from "./pi-runtime.js";
+import { materializePropagated } from "./propagate.js";
+import { snapshotWorkspaceArtifacts } from "./snapshot.js";
 import { guessMediaType, parseResult, safeJoin, type LoopOutcome } from "./agent-loop.js";
 
 // re-exported so the daemon keeps a single import surface
@@ -82,6 +84,9 @@ export class PiAttemptExecutor {
     try {
       await this.client.start(this.spec.attempt_id, this.workerId, this.spec.lease.epoch);
     } catch { /* already STARTED is fine */ }
+
+    // cross-attempt propagation: predecessor deliverables into this workspace
+    const propagated = await materializePropagated(this.client, this.spec, this.workerId).catch(() => [] as string[]);
 
     const agentRef: { agent: Agent | null } = { agent: null };
     this.startHeartbeat((steers) => {
@@ -188,7 +193,9 @@ export class PiAttemptExecutor {
       messages: [],
       tools: gatedTools as any,
       gateway,
-      initialUserPrompt: `请开始执行任务：${this.spec.task_title}`,
+      initialUserPrompt: `请开始执行任务：${this.spec.task_title}` +
+        (propagated.length ? `
+[系统] 前序任务交付物已放入工作区：${propagated.join(", ")}` : ""),
       onEvent,
       onReady: (a) => { live = a; agentRef.agent = a; },
     });
@@ -251,12 +258,20 @@ export class PiAttemptExecutor {
       } catch { /* missing file: recorded as missing in summary */ }
     }
 
+    const snapshot = await snapshotWorkspaceArtifacts(this.client, this.spec, this.spec.sandbox.workspace_dir);
+    const byName = new Map(artifacts.map((a) => [a.name, a]));
+    for (const snap of snapshot) {
+      if (!byName.has(snap.name)) {
+        byName.set(snap.name, { name: snap.name, media_type: snap.media_type, digest: snap.digest, size_bytes: snap.size_bytes });
+      }
+    }
+
     const outcome: "SUCCEEDED" | "FAILED" = parsed?.outcome ?? (finalText ? "SUCCEEDED" : "FAILED");
     return {
       outcome,
       summary: parsed?.summary ?? finalText?.slice(0, 800) ?? "无输出",
       verification: parsed?.verification ?? null,
-      artifacts,
+      artifacts: [...byName.values()],
       usage: { ...usage, unknown_settlement: false },
       steps,
     };

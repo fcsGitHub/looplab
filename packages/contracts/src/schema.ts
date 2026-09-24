@@ -110,6 +110,18 @@ export const RunSpecSchema = z.object({
     python_executable: z.string().nullable(),
   }),
   steering_mode: z.enum(["next_turn", "disabled"]).default("next_turn"),
+  /**
+   * Cross-attempt artifact propagation (problem ledger #5): predecessor
+   * deliverables resolved by the SCHEDULER at claim time, materialized into
+   * the attempt workspace by the worker before the loop starts. Resolved
+   * from SUCCEEDED predecessor tasks' latest committed task-scope artifacts;
+   * capped by the scheduler. Empty unless predecessors produced files.
+   */
+  propagated_artifacts: z.array(z.object({
+    name: z.string(),
+    digest: z.string(),
+    from_task_key: z.string(),
+  })).default([]),
 });
 export type RunSpec = z.infer<typeof RunSpecSchema>;
 

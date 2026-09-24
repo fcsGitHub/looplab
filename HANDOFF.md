@@ -61,13 +61,16 @@
 
 ## 问题账本（按影响排序）
 
-5. **跨 attempt 产物传播未实现**（第五轮端到端发现，非 Pi 回归——AgentLoop
-   行为相同）：多任务图中前驱任务在其独立沙箱产出的交付物不会物化到后继
-   attempt 的工作区（input_refs 恒为空、无按名解析机制），后继任务只能重建
-   或如实报失败。t2/t4 三次失败与 diagnose 成功均为此缺口的真实证据。
-   修复方向：claim 时解析前驱 COMMITTED attempt 的 artifacts 按 input_refs/
-   文件名物化进新工作区（schema 加可选字段 + worker 下载步骤 + planner
-   提示产出 input_refs）。
+5. **已关闭（第六轮）**：跨 attempt 产物传播落地——
+   (a) claim 时 scheduler 解析 SUCCEEDED 前驱的最新 COMMITTED attempt 的
+   task-scope 产物（按名去重取最新、上限 20），写入 RunSpec 新可选字段
+   `propagated_artifacts`；(b) worker 循环开始前经 attempt 围栏下载端点
+   `GET /v1/attempts/:id/propagated/:digest` 物化进工作区（两个运行时通用）；
+   (c) commit 前对工作区做**确定性快照上传**（上限 20 文件×256KB），不再
+   依赖模型在 RESULT.files 里自报交付物；(d) commit 围栏接受 STARTED 起点
+   （纯文本收尾的 attempt 不经过 RUNNING）。端到端复验：t1→t2→t3 全链
+   SUCCEEDED，实验任务摘要确认 import 前驱产物跑通 3/3 用例。
+   测试：`tests/integration/a21-propagation.test.ts`（2 项）。
 
 1. verify/审查任务偶发因模型不按 RESULT 格式收尾而失败重试（消耗预算）；
    已通过「临近步数上限强制收尾」缓解，仍偶发。
