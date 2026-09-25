@@ -1,6 +1,6 @@
 {
-  "manifest_version": "13",
-  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview",
+  "manifest_version": "14",
+  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview + A31 plan isolation, async research runner, planner throttle (+ fixed broken runner file)",
   "goal": "IMPLEMENTATION_GOAL.md",
   "test_root": "tests/",
   "evidence_root": "docs/evidence/",
@@ -318,6 +318,19 @@
         "apps/control/src/eventstore.ts (after owner scope)",
         "apps/web/src/App.tsx (approval strip + goals sidebar)",
         "playwright: 2 passed (main-path 8.0s, sse-reject)"
+      ]
+    },
+    {
+      "id": "A31",
+      "scenario": "研究计划端点修复：IDOR 隔离、阻塞式 runner 异步化、规划 LLM 频控，外加修复自诞生即损坏的 experiment.py",
+      "expected": "/v1/plans/:id/run|analyze 经 hypothesis→goal 解析属主（非属主 404，owner 可执行 6 个真实 run 并 analyze）；runner 子进程异步化（spawnSync 曾冻结整个控制进程最长 120s，心跳/SSE/编排全部停摆且租约到期会误判 LOST）；runtime_ms 小数不再炸 UPDATE；会话首消息（真实规划 LLM）每用户 5 次/10 分钟后 429；taskpacks/computational-research/experiment.py 的 JS 风格 /***/ 头注释改为 Python docstring（该文件此前无法被 Python 解析——run 端点从未可用过）",
+      "test": "tests/integration/a31-plan-isolation-throttle.test.ts (2)",
+      "requires_real_llm": false,
+      "status": "PASS",
+      "evidence": [
+        "apps/control/src/routes/index.ts (planScope/runRunner/plannerLimiter)",
+        "taskpacks/computational-research/experiment.py (py_compile OK)",
+        "docs/evidence/p22-round/ (证据归档)"
       ]
     }
   ],

@@ -98,18 +98,21 @@ export async function loginAs(env: TestEnv, username: string, password = "loopla
 /** Direct DB fixture helper (sanctioned for deterministic state-machine tests). */
 export function fixture(env: TestEnv) {
   const db = env.app.services.db;
+  const state: { lastProjectId?: string } = {};
   return {
     async createProjectSession(userId: string) {
       const prj = await db.query(
         "INSERT INTO projects (id, owner_id, slug, name) VALUES ($1,$2,$3,$4) RETURNING id",
         [`prj_${randomBytes(4).toString("hex")}`, userId, "test", "Test Project"],
       );
+      state.lastProjectId = prj.rows[0]!.id;
       const ses = await db.query(
         "INSERT INTO chat_sessions (id, project_id, owner_id, title) VALUES ($1,$2,$3,$4) RETURNING id",
-        [`ses_${randomBytes(4).toString("hex")}`, prj.rows[0]!.id, userId, "t"],
+        [`ses_${randomBytes(4).toString("hex")}`, state.lastProjectId, userId, "t"],
       );
       return { projectId: prj.rows[0]!.id, sessionId: ses.rows[0]!.id };
     },
+    lastProjectId() { return state.lastProjectId; },
     async createGoalWithTasks(userId: string, projectId: string, sessionId: string, tasks: {
       key: string; role?: string; title?: string; depends_on?: string[];
     }[], goalState = "ACTIVE", budgetCapUsd = "5", priority = 5) {

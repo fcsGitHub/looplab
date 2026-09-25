@@ -1,6 +1,6 @@
 // All HTTP routes. Handlers stay thin; logic lives in services.
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { EventStore } from "../eventstore.js";
@@ -10,6 +10,7 @@ import { FencingError } from "../attempts.js";
 import { OptimizerAuthError, OptimizerBudgetExceededError } from "../optimizer.js";
 import { ReleaseConflictError, ReleaseBlockedError } from "../releases.js";
 import { RateLimiter } from "../ratelimit.js";
+import { infraEnv } from "../childenv.js";
 import type { ControlServices } from "./services.js";
 
 export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
@@ -46,6 +47,11 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // credential-stuffing brake: per-IP+username sliding window, lockout after
   // repeated failures (P17; brute force on scrypt was previously unthrottled)
   const authLimiter = new RateLimiter(10 * 60_000, 8, 15 * 60_000);
+  // planner throttle (P22): a session's FIRST message dispatches a real
+  // planning LLM call — unthrottled, one account could spin up arbitrary
+  // metered spend. 5 planning dispatches per 10 min per user; steering
+  // messages to existing goals are not metered by this.
+  const plannerLimiter = new RateLimiter(10 * 60_000, 5, 60_000); // 5 dispatches/10min, then a 60s cooldown
 
   // ---- goal/attempt isolation (P17) ------------------------------------------
   // Reads used to be scoped only by knowledge of the id. Goals carry owner_id;
@@ -195,6 +201,11 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (!session) return reply.code(404).send({ error: "session not found" });
 
     if (!session.goal_id) {
+      const plannerSlot = `plan:${req.user!.id}`;
+      if (!plannerLimiter.check(plannerSlot).allowed) {
+        return reply.code(429).send({ error: "goal creation rate limit reached, try later" });
+      }
+      plannerLimiter.fail(plannerSlot); // consume a slot for this dispatch
       const out = await svc.goals.createGoalFromMessage({
         sessionId: session.id, userId: req.user!.id, text: String(content), projectId: session.project_id,
         priority,
@@ -494,31 +505,71 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
+  // research plans hang off hypotheses, which hang off goals — resolve the
+  // owning goal so run/analyze respect the same isolation as every other
+  // goal-scoped route (P22 fix: both were reachable by id alone)
+  const planScope = async (req: any, reply: FastifyReply, planId: string): Promise<{ goal_id: string } | null> => {
+    const row = (await svc.db.query(
+      `SELECT g.id AS goal_id, g.owner_id FROM experiment_plans ep
+         JOIN hypotheses h ON h.id = ep.hypothesis_id
+         JOIN goals g ON g.id = h.goal_id
+        WHERE ep.id=$1`, [planId],
+    )).rows[0] as { goal_id: string; owner_id: string } | undefined;
+    if (!row || (req.user!.role !== "admin" && row.owner_id !== req.user!.id)) {
+      reply.code(404).send({ error: "plan not found" });
+      return null;
+    }
+    return row;
+  };
+  /** Async runner child: spawnSync here used to freeze the WHOLE control
+   *  process for up to 120s — heartbeats, SSE and the orchestrator all
+   *  stalled, and lease expiry would then mark live attempts LOST (P22 fix). */
+  const runRunner = (runnerScript: string, reqBody: unknown, timeoutMs: number) =>
+    new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn("python", [runnerScript], {
+        env: infraEnv(),
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let stdout = "", stderr = "";
+      const timer = setTimeout(() => child.kill(), timeoutMs);
+      child.stdout.on("data", (d) => { stdout += d; });
+      child.stderr.on("data", (d) => { stderr += d; });
+      child.on("error", (e) => { clearTimeout(timer); reject(e); });
+      child.on("close", (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+      child.stdin.write(JSON.stringify(reqBody));
+      child.stdin.end();
+    });
+
   app.post("/v1/plans/:id/run", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     // execute the frozen protocol with the real deterministic runner
     const planId = (req.params as any).id;
+    if (!(await planScope(req, reply, planId))) return;
     const plan = (await svc.db.query("SELECT * FROM experiment_plans WHERE id=$1", [planId])).rows[0];
-    if (!plan) return reply.code(404).send({ error: "plan not found" });
-    const protocol = plan.protocol;
     const runs = (await svc.db.query(
       "SELECT id, arm, seed, params FROM experiment_runs WHERE plan_id=$1 AND status='PENDING'", [planId],
     )).rows;
     if (!runs.length) return reply.code(409).send({ error: "no pending runs for this plan" });
     const reqBody = { runs: runs.map((r: any) => ({ arm: r.arm, seed: r.seed, params: r.params })) };
     const runnerScript = path.resolve(svc.config.dataDir, "taskpacks", "computational-research", "experiment.py");
-    const proc = spawnSync("python", [runnerScript], {
-      input: JSON.stringify(reqBody), encoding: "utf8", timeout: 120_000,
-      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "C:\\Windows", PYTHONIOENCODING: "utf-8" },
-    });
-    if (proc.status !== 0) return reply.code(500).send({ error: (proc.stderr ?? "runner failed").slice(0, 300) });
-    const out = JSON.parse(proc.stdout);
+    let proc: { code: number | null; stdout: string; stderr: string };
+    try {
+      proc = await runRunner(runnerScript, reqBody, 120_000);
+    } catch (err) {
+      return reply.code(500).send({ error: `runner failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300) });
+    }
+    if (proc.code !== 0) return reply.code(500).send({ error: (proc.stderr || "runner failed").slice(0, 300) });
+    let out: any;
+    try { out = JSON.parse(proc.stdout); } catch { return reply.code(500).send({ error: "runner output unreadable" }); }
     for (const r of out.runs as any[]) {
       const match = runs.find((x: any) => x.arm === r.arm && Number(x.seed) === Number(r.seed));
       if (!match) continue;
       await svc.db.query(
         `UPDATE experiment_runs SET metrics=$2, runtime_ms=$3, status=$4 WHERE id=$1`,
-        [match.id, JSON.stringify(r.metrics ?? {}), Number(r.runtime_ms ?? 0), r.status === "DONE" ? "DONE" : "FAILED"],
+        // runtime_ms arrives as fractional ms from the runner; the column is
+        // integer — an unrounded value used to blow up the whole UPDATE (P22)
+        [match.id, JSON.stringify(r.metrics ?? {}), Math.round(Number(r.runtime_ms ?? 0)), r.status === "DONE" ? "DONE" : "FAILED"],
       );
     }
     const done = Number((await svc.db.query("SELECT count(*)::int AS n FROM experiment_runs WHERE plan_id=$1 AND status='DONE'", [planId])).rows[0]?.n ?? 0);
@@ -528,6 +579,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   app.post("/v1/plans/:id/analyze", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     const planId = (req.params as any).id;
+    if (!(await planScope(req, reply, planId))) return;
     const analysis = await svc.research.analyze(planId);
     await svc.research.recordOutcome(planId, analysis.verdict, analysis.detail, analysis.stats);
     return analysis;

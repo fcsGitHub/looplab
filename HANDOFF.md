@@ -1,5 +1,23 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-26 02:20（P22 计划端点修复轮）· 分支：`main`
+
+## 本轮新增：P22 — 研究 run 端点三重修复（2026-09-26）
+
+给 `/v1/plans/:id/run` 补测试时发现的连环缺陷（该端点此前零测试覆盖，实际从未可用）：
+
+| # | 缺陷 | 修复 |
+|---|---|---|
+| V14 | **runner 阻塞整个控制进程**：spawnSync 最长 120s，期间心跳/SSE/编排器全部停摆，租约到期会把运行中 attempt 误判 LOST | 异步 spawn（stdin 传参 + 超时），env 走 infraEnv 白名单 |
+| V15 | **计划端点 IDOR**：run/analyze 仅凭 id 可达（无属主校验） | 经 hypothesis→goal 解析属主，非属主 404 |
+| V16 | **实验文件损坏**：experiment.py 头部是 JS 风格 `/** */` 注释——Python 无法解析，run 端点一调用就 500（自入库起即坏） | 头注释转 Python docstring，py_compile 通过，测试内真实执行 6 runs |
+| + | runtime_ms 小数炸 UPDATE（INTEGER 列）；规划 LLM 无频控 | Math.round；首消息每用户 5 次/10 分钟 + 60s 冷却（429） |
+
+测试 `tests/integration/a31-plan-isolation-throttle.test.ts`（2，含真实 runner 执行）。
+全量 **102 passed / 0 failed**；typecheck/build 双绿。
+
+---
+
 更新时间：2026-09-26 01:40（P21 SSE 属主隔离 + 审批/总览 UI 轮）· 分支：`main`
 
 ## 本轮新增：P21 — SSE 跨用户事件泄露修复 + 审批与总览 UI（2026-09-26）
