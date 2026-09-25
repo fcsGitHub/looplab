@@ -9,6 +9,7 @@ import { EvaluationResultSchema, type EvaluationResult } from "@looplab/contract
 import { EventStore } from "./eventstore.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
+import { infraEnv } from "./childenv.js";
 
 export interface EvalRequest {
   candidateId: string;
@@ -111,12 +112,11 @@ export class EvalBroker {
       const child = spawn(opts.python, [opts.evaluatorScript, ...opts.args], {
         cwd: opts.evalDir,
         timeout: opts.timeoutMs,
-        env: {
-          ...process.env,
-          PYTHONDONTWRITEBYTECODE: "1",
-          // NOTE: SEALED_DIR is NOT passed to candidates' worker processes;
-          // the evaluator child resolves sealed:// refs via the suite file path itself.
-        },
+        // allowlisted env (P19): never forward the host environment — it can
+        // carry the model key; NOTE: SEALED_DIR is NOT passed to candidates'
+        // worker processes; the evaluator child resolves sealed:// refs via
+        // the suite file path itself.
+        env: infraEnv(),
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "", stderr = "";

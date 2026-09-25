@@ -15,6 +15,7 @@ import { PiAttemptExecutor } from "./pi-executor.js";
 // live production verification (P10); settlement parity landed in P14.
 // RUNTIME=loop explicitly selects the built-in loop runtime (rollback path).
 const RUNTIME = process.env.RUNTIME ?? "pi";
+const WORKER_VERSION = "2"; // claim-payload schema for runtime self-report
 
 const CONTROL_URL = process.env.CONTROL_URL ?? "http://localhost:8080";
 const WORKER_ID = process.env.WORKER_ID ?? `sandbox-${randomBytes(3).toString("hex")}`;
@@ -33,7 +34,7 @@ async function main() {
   while (!stopped) {
     let job: { attempt: any; spec: RunSpec } | null = null;
     try {
-      const res = await client.claim(WORKER_ID);
+      const res = await client.claim(WORKER_ID, { runtime: RUNTIME, version: WORKER_VERSION });
       if (res.status === 200 && res.json) job = res.json;
     } catch (err) {
       console.error(`[worker ${WORKER_ID}] claim failed: ${err instanceof Error ? err.message : err}`);

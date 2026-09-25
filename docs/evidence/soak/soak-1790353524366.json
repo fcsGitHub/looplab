@@ -1,0 +1,103 @@
+{
+ "run_kind": "partial-10min",
+ "started": "2026-09-25T16:15:22.482Z",
+ "ended": "2026-09-25T16:25:24.365Z",
+ "duration_s": 602,
+ "cycles": 294,
+ "errors": 0,
+ "faults": [
+  {
+   "at": "2026-09-25T16:16:22.679Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=5809"
+  },
+  {
+   "at": "2026-09-25T16:18:23.510Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=5869"
+  },
+  {
+   "at": "2026-09-25T16:20:24.341Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=5919"
+  },
+  {
+   "at": "2026-09-25T16:22:25.169Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=5919"
+  },
+  {
+   "at": "2026-09-25T16:24:25.997Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=5919"
+  }
+ ],
+ "goals_created": 3,
+ "platform_metrics": {
+  "uptime_s": 635,
+  "goals": [
+   {
+    "state": "CANCELLED",
+    "n": 21
+   },
+   {
+    "state": "ACTIVE",
+    "n": 17
+   },
+   {
+    "state": "COMPLETED",
+    "n": 15
+   },
+   {
+    "state": "PAUSED_USER",
+    "n": 6
+   }
+  ],
+  "attempts": [
+   {
+    "status": "LOST",
+    "n": 15
+   },
+   {
+    "status": "COMMITTED",
+    "n": 467
+   }
+  ],
+  "events": {
+   "count": 33185,
+   "head": "33235"
+  },
+  "budget": [
+   {
+    "status": "open",
+    "settled": "0.000000",
+    "unknown": "0.000000",
+    "reserved": "0.019440"
+   },
+   {
+    "status": "settled",
+    "settled": "16.908331",
+    "unknown": "0.000000",
+    "reserved": "0.000000"
+   }
+  ],
+  "model": {
+   "calls": 5919,
+   "cost_usd": 16.670487,
+   "last_24h_usd": 5.886605,
+   "daily_cap_usd": null
+  },
+  "orchestrator": {
+   "last_reconcile_at": "2026-09-25T16:25:21.480Z",
+   "reconcile_totals": {
+    "lost": 0,
+    "reconcileRequired": 0
+   },
+   "last_error": null
+  }
+ },
+ "notes": [
+  "A17 72h 验收仅在 run_kind=A17-full-72h 且 errors 无关紧要时可作为通过证据；",
+  "短时运行记录为部分浸泡测试：证明机制可运行、可观测、故障可恢复，不代表 72 小时稳定性。"
+ ]
+}

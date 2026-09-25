@@ -1,5 +1,48 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-26 01:00（P20 诊断→审批→自动修订闭环轮）· 分支：`main`
+
+## 本轮新增：P20 — 目标停滞闭环修复（2026-09-26）
+
+浸泡暴露的真实运营缺口：任务 3× 失败 → 诊断任务 SUCCEEDED 后，目标在 ACTIVE
+状态静默停滞（被诊断任务 WAITING、后继被依赖规则挡住），必须有人**恰好注意到**
+并手工 revise 才能继续（上轮 palindrome 目标即如此）。
+
+修复：诊断任务 SUCCEEDED 时自动创建 `goal_revise` 审批（复用既有 approvals
+人审机制 + approval.requested 事件）；批准 → 插入 ACCEPTED revise 命令 →
+orchestrator 既有管线自动重规划（无需新机制，纯接线）。FAILED 的诊断不发起。
+
+测试 `tests/integration/a29-diagnosis-approval.test.ts`（3）+ 生产实例复验：
+浸泡停滞目标经 API 批准后真实重规划 → **COMPLETED**（$0.4875 计量，零手工命令）。
+
+全量 98 passed / 0 failed；typecheck/build 双绿。
+
+---
+
+更新时间：2026-09-26 00:20（P19 第二轮审计 + 报告导出轮）· 分支：`main`
+
+## 本轮新增：P19 — 三处缺陷修复 + 两项功能 + token auth 下浸泡复验（2026-09-26）
+
+### 修复的缺陷
+
+| # | 缺陷 | 修复 | 验证 |
+|---|---|---|---|
+| V10 | **子进程全量继承宿主 env**：evaluator（evalbroker）与优化器后端（optimizer）spawn 用 `...process.env`——一旦操作者以导出方式携带 DEEPSEEK_API_KEY 启动控制服务，密钥即被转发给全部受信子进程，直接违反「模型密钥不出控制进程」不变量（代码注释声称"the ONLY credential"但实现不符） | 新增 `infraEnv()` 白名单（PATH/系统目录/TEMP/PYTHON*），两处 spawn 改走白名单 + 显式 run token；单测以毒化 env（DEEPSEEK_API_KEY/LL_COOKIE_SECRET/WORKER_TOKEN）断言零透传 | `tests/unit/childenv.test.ts` |
+| V11 | **artifact 名双重编码**：worker 上传时 `encodeURIComponent(name)`，服务端原样入库，下载头再次编码——含中文/空格的交付物名在下载端被二次百分号编码 | 入库时恰好解码一次（try/catch 容错） | A28 集成测试（`报告 xxx.txt` 往返） |
+| V12 | **登录用户名枚举侧信道**：用户不存在时跳过 scrypt 校验，响应时间差异泄露用户名存在性 | 未知用户也执行同代价的 dummy scrypt 校验 | 代码级，行为不变 |
+
+### 新增功能
+
+- **`GET /v1/goals/:id/report.md`**（P19）：从真实账本（tasks/attempts/budget_reservations/events/artifacts/claims）渲染 Markdown 运行报告——任务图、执行与花费、关键事件时间线、交付物清单、结论声明；属主/admin 可导出，UI 运行记录页一键下载。
+- **Worker 运行时自报**：claim 载荷携带 `{runtime, version}`，注册表 `runtime` 列显示（如 `pi@2`）；缺失时保留旧值（COALESCE）。
+
+### 真实复验
+
+- 全量测试 **95 passed / 0 failed**（上轮 90 → 95）；typecheck/build 双绿。
+- 10 分钟有界浸泡在 token auth + P19 代码上执行（3 并发真实目标、pause/resume 注入、steer 风暴、SSE 重连），结果归档 `docs/evidence/p19-round/`。
+
+---
+
 更新时间：2026-09-25 24:00（P17/P18 安全加固 + 可观测性轮）· 分支：`main`
 
 ## 本轮新增：安全审计修复（P17）+ fleet 可观测性（P18）（2026-09-25）

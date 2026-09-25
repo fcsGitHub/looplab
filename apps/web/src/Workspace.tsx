@@ -60,6 +60,13 @@ export function Workspace(props: {
   if (view === "runs") {
     return (
       <div className="ws-body">
+        {goalId && attempts.length > 0 && (
+          <a className="run-row static report-link" href={api.reportUrl(goalId)} title="从真实事件账本导出 Markdown 运行报告">
+            <span className="role-badge" data-role="Curator">导出</span>
+            <span className="sa-title">运行报告 report.md</span>
+            <span className="mono muted">任务图 · 执行与花费 · 时间线 · 交付物</span>
+          </a>
+        )}
         {attempts.length === 0 && <div className="empty">暂无运行</div>}
         {attempts.map((a) => (
           <button key={a.id} className="run-row" onClick={() => onOpenInspector({ kind: "attempt", id: a.id })}>

@@ -25,6 +25,7 @@ import {
 } from "@looplab/contracts";
 import { estimateCostUsd, type ChatMessage } from "@looplab/llm";
 import { EventStore } from "./eventstore.js";
+import { infraEnv } from "./childenv.js";
 import { LlmGateway } from "./llmgateway.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
@@ -328,14 +329,11 @@ export class OptimizerService {
       const child = spawn(python, [resolved, manifestPath], {
         cwd: manifest.work_dir,
         timeout: input.timeoutMs ?? 30 * 60_000,
-        env: {
-          ...process.env,
-          PYTHONDONTWRITEBYTECODE: "1",
-          PYTHONIOENCODING: "utf-8",
-          // the ONLY credential the backend gets: a run-scoped token that
-          // authorizes the metered LLM proxy — never the model API key
-          LOOPLAB_OPT_TOKEN: token,
-        },
+        // allowlisted env: the ONLY credential the backend gets is the
+        // run-scoped token for the metered LLM proxy — a `...process.env`
+        // spread here used to forward DEEPSEEK_API_KEY to backend processes
+        // whenever the operator had exported it (P19 fix)
+        env: infraEnv({ LOOPLAB_OPT_TOKEN: token }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stderr = "";

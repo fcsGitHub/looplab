@@ -616,6 +616,27 @@ export class GoalService {
          WHERE id=$1`,
         [task.id, newTaskState, fingerprint ?? null],
       );
+      // Diagnosis resolution gate (P20): when a diagnosis task SUCCEEDS, the
+      // goal still stalls — the diagnosed task sits WAITING and dependents
+      // stay parked until someone revises. Surface it as an APPROVAL instead
+      // of leaving the ledger silent: approving inserts an ACCEPTED revise
+      // command that the orchestrator already knows how to apply.
+      if (newTaskState === "SUCCEEDED" && task.node_key.startsWith("diagnose_")) {
+        const apprId = newId("appr");
+        const content = `采纳诊断结论并修订计划：${summary.slice(0, 400)}`;
+        await client.query(
+          `INSERT INTO approvals (id, goal_id, kind, title, detail, scope, status, requested_by)
+           VALUES ($1,$2,'goal_revise',$3,$4,'goal','PENDING','system:supervisor')`,
+          [apprId, attempt.goal_id,
+            `诊断完成，待修订：${task.title ?? task.node_key}`,
+            JSON.stringify({ diagnose_node: task.node_key, summary: summary.slice(0, 400), content })],
+        );
+        await EventStore.append(client, {
+          aggregateType: "goal", aggregateId: attempt.goal_id, eventType: "approval.requested",
+          goalId: attempt.goal_id, actor: { kind: "system", id: "supervisor" },
+          payload: { approval_id: apprId, kind: "goal_revise", diagnose_node: task.node_key },
+        });
+      }
       // A13: 3 identical fingerprints -> park the task and dispatch diagnosis
       if (newTaskState === "FAILED" && task.failure_count + 1 >= 3) {
         await client.query("UPDATE tasks SET state='WAITING' WHERE id=$1", [task.id]);

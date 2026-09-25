@@ -259,6 +259,83 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     };
   });
 
+  app.get("/v1/goals/:id/report.md", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const goalId = (req.params as any).id;
+    if (!(await goalScope(req, reply, goalId))) return;
+    // run report: every value below is read from the real ledger (P19 feature)
+    const goal = (await svc.db.query("SELECT * FROM goals WHERE id=$1", [goalId])).rows[0] as
+      { title: string; state: string; current_version: number; priority: number; created_at: string; updated_at: string; budget_cap_usd: string } | undefined;
+    if (!goal) return reply.code(404).send({ error: "goal not found" });
+    const tasks = (await svc.db.query(
+      `SELECT node_key, role, title, state, failure_count, visit_count FROM tasks WHERE goal_id=$1 ORDER BY created_at`, [goalId])).rows;
+    const att = (await svc.db.query(
+      `SELECT status, count(*)::int AS n, COALESCE(sum(model_calls),0)::int AS calls,
+              COALESCE(sum(settled_usd),0)::float AS usd
+         FROM attempts WHERE goal_id=$1 GROUP BY status ORDER BY status`, [goalId])).rows;
+    const budget = (await svc.db.query(
+      `SELECT status, sum(settled_usd) AS settled, sum(unknown_usd) AS unknown, sum(reserved_usd) AS reserved
+         FROM budget_reservations WHERE goal_id=$1 GROUP BY status`, [goalId])).rows;
+    const events = (await svc.db.query(
+      `SELECT event_type, payload, occurred_at FROM events
+        WHERE goal_id=$1 AND event_type IN
+          ('goal.created','goal.revised','attempt.committed','attempt.lost','goal.completed',
+           'candidate.promoted','candidate.rolled_back','release.created','goal.priority_changed')
+        ORDER BY seq ASC LIMIT 400`, [goalId])).rows;
+    const artifacts = (await svc.db.query(
+      `SELECT name, media_type, size_bytes, producer_role FROM artifacts WHERE goal_id=$1 ORDER BY created_at DESC LIMIT 50`, [goalId])).rows;
+    const claims = (await svc.db.query(
+      `SELECT text, stance, kind FROM claims WHERE goal_id=$1 ORDER BY created_at DESC LIMIT 20`, [goalId])).rows;
+
+    const md: string[] = [];
+    md.push(`# LoopLab 目标运行报告`);
+    md.push("");
+    md.push(`- 目标：${goal.title}`);
+    md.push(`- 状态：**${goal.state}** · 版本 v${goal.current_version} · 优先级 ${goal.priority}`);
+    md.push(`- 创建：${new Date(goal.created_at).toISOString()} · 更新：${new Date(goal.updated_at).toISOString()}`);
+    md.push(`- 预算上限：$${Number(goal.budget_cap_usd).toFixed(2)}`);
+    md.push("");
+    md.push(`## 任务图（${tasks.length} 个节点）`);
+    md.push("");
+    md.push("| 节点 | 角色 | 状态 | 失败次数 |");
+    md.push("|---|---|---|---|");
+    for (const t of tasks) md.push(`| ${t.node_key} | ${t.role} | ${t.state} | ${t.failure_count} |`);
+    md.push("");
+    md.push(`## 执行与花费`);
+    md.push("");
+    md.push("| Attempt 状态 | 数量 | 模型调用 | 结算花费 |");
+    md.push("|---|---|---|---|");
+    for (const a of att) md.push(`| ${a.status} | ${a.n} | ${a.calls} | $${Number(a.usd).toFixed(4)} |`);
+    for (const b of budget) {
+      md.push("");
+      md.push(`- 预算分账（${b.status}）：结算 $${Number(b.settled ?? 0).toFixed(4)} · 未结算 $${Number(b.unknown ?? 0).toFixed(4)} · 预留 $${Number(b.reserved ?? 0).toFixed(4)}`);
+    }
+    md.push("");
+    md.push(`## 关键事件时间线`);
+    md.push("");
+    for (const e of events) {
+      const brief = e.event_type === "attempt.committed"
+        ? `${e.payload?.outcome ?? ""} ${String(e.payload?.summary ?? "").slice(0, 80)}`
+        : e.event_type === "goal.revised"
+          ? String(e.payload?.objective ?? "").slice(0, 80)
+          : "";
+      md.push(`- \`${new Date(e.occurred_at).toISOString()}\` ${e.event_type}${brief ? ` — ${brief}` : ""}`);
+    }
+    md.push("");
+    md.push(`## 交付物（最近 ${artifacts.length} 项）`);
+    md.push("");
+    for (const a of artifacts) md.push(`- ${a.name}（${a.media_type}, ${a.size_bytes}B, by ${a.producer_role}）`);
+    if (claims.length) {
+      md.push("");
+      md.push(`## 结论声明`);
+      md.push("");
+      for (const c of claims) md.push(`- [${c.stance}] ${c.text}`);
+    }
+    reply.header("content-type", "text/markdown; charset=utf-8");
+    reply.header("content-disposition", `attachment; filename="report-${goalId}.md"`);
+    return md.join("\n");
+  });
+
   app.post("/v1/goals/:id/commands", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     if (!(await goalScope(req, reply, (req.params as any).id))) return;
@@ -703,15 +780,35 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         goalId: row.goal_id, actor: { kind: "user", id: req.user!.id },
         payload: { kind: row.kind },
       });
+      // approving a goal_revise approval enqueues an ACCEPTED revise command;
+      // the orchestrator applies it through the existing revision pipeline
+      if (decision === "approve" && row.kind === "goal_revise") {
+        const detail = typeof row.detail === "string" ? JSON.parse(row.detail) : row.detail ?? {};
+        await client.query(
+          `INSERT INTO commands (id, command_id, goal_id, kind, payload, status, actor)
+           VALUES ($1,$2,$3,'revise',$4,'ACCEPTED',$5)`,
+          [`cmd_${randomBytes(8).toString("hex")}`, `cmd_${randomBytes(8).toString("hex")}`,
+            row.goal_id, JSON.stringify({ content: String(detail.content ?? "") }),
+            JSON.stringify({ kind: "user", id: req.user!.id })],
+        );
+        await EventStore.append(client, {
+          aggregateType: "goal", aggregateId: row.goal_id, eventType: "goal.revise_commanded",
+          goalId: row.goal_id, actor: { kind: "user", id: req.user!.id },
+          payload: { via_approval: (req.params as any).id },
+        });
+      }
     });
     return { ok: true };
   });
 
   // ---- worker API (worker identity = registration token, P17) --------------------
   app.post("/v1/worker/claim", { preHandler: requireWorkerToken }, async (req, reply) => {
-    const { worker_id } = req.body as any;
+    const { worker_id, runtime, version } = req.body as any;
     if (!worker_id) return reply.code(400).send({ error: "worker_id required" });
-    const job = await svc.scheduler.claim(String(worker_id));
+    const job = await svc.scheduler.claim(String(worker_id), {
+      runtime: runtime ? String(runtime).slice(0, 40) : undefined,
+      version: version ? String(version).slice(0, 40) : undefined,
+    });
     if (!job) return reply.code(204).send();
     return job;
   });
@@ -807,8 +904,12 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     const body = req.body as Buffer;
     const headers = req.headers as any;
     if (!body?.length) return reply.code(400).send({ error: "empty body" });
+    // workers send x-artifact-name percent-encoded; decode ONCE at ingest —
+    // storing the encoded form used to double-encode names on download (P19)
+    let name = String(headers["x-artifact-name"] ?? "unnamed");
+    try { name = decodeURIComponent(name); } catch { /* keep raw */ }
     const res = await svc.attempts.putArtifact({
-      body, name: String(headers["x-artifact-name"] ?? "unnamed"),
+      body, name,
       mediaType: String(headers["x-artifact-media-type"] ?? "application/octet-stream"),
       producerRun: String(headers["x-attempt-id"] ?? "external"),
       producerRole: String(headers["x-producer-role"] ?? "worker"),

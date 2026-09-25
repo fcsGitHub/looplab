@@ -27,6 +27,7 @@
 | 跨用户数据（多账号部署） | member 以 id 遍历读取他人 goal/attempt/会话/证据 | 全部读路由按 goals.owner_id 隔离（member 视角 404，admin 全量）；`/v1/metrics`、`/v1/workers` 需要会话（A26） |
 | 凭据暴力破解 | 登录/注册端点无限尝试 | IP+用户名滑动窗口限流，8 败锁定 15 分钟，成功登录清零（A26） |
 | 全局花费失控 | 单目标预算上限不看跨目标聚合 | `DAILY_BUDGET_USD>0` 时 LLM 网关在预留前对 24h 滚动聚合花费熔断（402）（A27） |
+| 控制进程环境变量外泄 | 受信子进程（evaluator/优化器后端）经 `...process.env` 继承宿主密钥 | 所有受信子进程 env 走 `infraEnv()` 白名单（PATH/系统目录/PYTHON* + 显式 run token）；单元测试以毒化 env 断言不透传（A28） |
 | 封存评测标签 (sealed://) | 候选/提案器读取或篡改 | sealed 目录仅在评测进程解析；候选沙箱 cwd 不含该路径；A10 负测试 |
 | 评分器与发布规则 | 候选自我批准 | ReleaseService 独立身份；程序评测硬门（A11）；CAS 发布（A09） |
 | 审计事件流 | 事后篡改 | 追加式 events 表，(aggregate,sequence) 唯一；worker 时钟不参与排序 |

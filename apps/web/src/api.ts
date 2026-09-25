@@ -59,6 +59,7 @@ export class Api {
   releases(goalId: string) { return this.get(`/v1/goals/${goalId}/releases`) as Promise<{ releases: ReleaseRow[] }>; }
   pointers() { return this.get("/v1/pointers") as Promise<{ pointers: Pointer[] }>; }
   artifactUrl(digest: string) { return `${this.base}/v1/artifacts/${digest}`; }
+  reportUrl(goalId: string) { return `${this.base}/v1/goals/${goalId}/report.md`; }
   settingsModel() { return this.get("/v1/settings/model"); }
   metrics() { return this.get("/v1/metrics"); }
   workers() { return this.get("/v1/workers") as Promise<{ workers: WorkerRow[] }>; }

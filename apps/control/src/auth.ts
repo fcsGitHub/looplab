@@ -12,6 +12,9 @@ export function hashPassword(password: string): string {
   return `scrypt$${salt}$${hash}`;
 }
 
+// shape-compatible scrypt record for the unknown-username timing equalizer
+const DUMMY_HASH = `scrypt$${"0".repeat(32)}$${"0".repeat(128)}`;
+
 export function verifyPassword(password: string, stored: string): boolean {
   const parts = stored.split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
@@ -46,7 +49,13 @@ export class AuthService {
   async login(username: string, password: string): Promise<{ token: string; userId: string } | null> {
     const res = await this.db.query("SELECT id, password_hash FROM users WHERE username=$1", [username]);
     const user = res.rows[0];
-    if (!user || !verifyPassword(password, user.password_hash)) return null;
+    if (!user) {
+      // burn the same scrypt cost as a real verification: without this, the
+      // response timing reveals whether a username exists (P19 fix)
+      verifyPassword(password, DUMMY_HASH);
+      return null;
+    }
+    if (!verifyPassword(password, user.password_hash)) return null;
     const token = randomBytes(32).toString("hex");
     const id = `ses_${randomBytes(8).toString("hex")}`;
     await this.db.query(

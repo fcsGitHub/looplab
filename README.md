@@ -77,6 +77,10 @@ WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.l
   滚动窗口花费（reserved+settled+unknown）达到上限时拒绝一切调用（402），
   `/v1/metrics` 可见 `last_24h_usd`/`daily_cap_usd`。
 - **CORS**：仅白名单 origin（默认 Vite 开发端口）回显凭据头；同源请求无需 CORS。
+- **子进程 env 白名单**：评测器与优化器后端子进程只继承 PATH/系统目录等非敏感项
+  （`infraEnv`），宿主环境的模型密钥永远不会被转发。
+- **运行报告**：`GET /v1/goals/:id/report.md`（会话鉴权，属主/admin）从真实事件账本
+  导出 Markdown 报告（任务图、执行与花费、时间线、交付物、结论声明）。
 
 ## 测试
 

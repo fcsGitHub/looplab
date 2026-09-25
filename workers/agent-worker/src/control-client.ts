@@ -24,8 +24,8 @@ export class ControlClient {
     return { status: res.status, json };
   }
 
-  claim(workerId: string) {
-    return this.req("POST", "/v1/worker/claim", { worker_id: workerId });
+  claim(workerId: string, meta?: { runtime?: string; version?: string }) {
+    return this.req("POST", "/v1/worker/claim", { worker_id: workerId, ...meta });
   }
   start(attemptId: string, workerId: string, leaseEpoch: number) {
     return this.req("POST", `/v1/attempts/${attemptId}/start`, { worker_id: workerId, lease_epoch: leaseEpoch });

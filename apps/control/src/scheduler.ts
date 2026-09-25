@@ -64,16 +64,18 @@ export class Scheduler {
    * Claim the next executable task for a worker. Returns null when nothing is
    * claimable (no busy-wait model calls: the worker just sleeps and re-polls).
    */
-  async claim(workerId: string): Promise<ClaimedJob | null> {
+  async claim(workerId: string, meta?: { runtime?: string; version?: string }): Promise<ClaimedJob | null> {
     return this.db.tx(async (client) => {
       // registry upsert: workers are tracked for /v1/workers fleet visibility.
       // Every poll touches last_seen_at (liveness); claims_total is bumped
-      // separately when a job is actually granted below.
+      // separately when a job is actually granted below. meta (runtime/version)
+      // is advisory self-report — refreshed opportunistically, never required.
       await client.query(
-        `INSERT INTO workers (id, polls_total) VALUES ($1, 1)
+        `INSERT INTO workers (id, polls_total, runtime) VALUES ($1, 1, $2)
          ON CONFLICT (id) DO UPDATE SET polls_total = workers.polls_total + 1,
-           last_seen_at = now()`,
-        [workerId],
+           last_seen_at = now(),
+           runtime = COALESCE($2, workers.runtime)`,
+        [workerId, meta?.runtime ? `${meta.runtime}${meta.version ? `@${meta.version}` : ""}` : null],
       );
       // Candidate rows: READY tasks on ACTIVE goals with deps satisfied.
       const rows = await client.query(
