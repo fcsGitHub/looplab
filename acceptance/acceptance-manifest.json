@@ -1,0 +1,277 @@
+{
+ "manifest_version": "9",
+ "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve)",
+ "goal": "IMPLEMENTATION_GOAL.md",
+ "test_root": "tests/",
+ "evidence_root": "docs/evidence/",
+ "status_values": [
+  "PASS",
+  "FAIL",
+  "PARTIAL",
+  "BLOCKED",
+  "NOT_RUN"
+ ],
+ "last_full_run": "2026-09-25 (74 passed / 2 skipped)",
+ "cases": [
+  {
+   "id": "A01",
+   "scenario": "提交目标，真实模型调用工具并产生文件",
+   "expected": "UI、事件、文件摘要与 Run ID 对得上",
+   "test": "tests/contract/deepseek-smoke.test.ts + 手工运行记录",
+   "requires_real_llm": true,
+   "status": "PASS",
+   "evidence": [
+    "docs/evidence/ui-live-02..06.png",
+    "HANDOFF.md#a01",
+    "独立复跑 primes_count.py 输出 count=1229"
+   ]
+  },
+  {
+   "id": "A02",
+   "scenario": "模型提出未获授权的工具调用",
+   "expected": "执行前拒绝，有拒绝事件；无实际副作用",
+   "test": "tests/integration/a02-a05-gate-fencing.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A03",
+   "scenario": "浏览器断线并重连",
+   "expected": "从游标恢复，消息和任务不重复",
+   "test": "tests/integration/a03-a04-a07-stream-recovery.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A04",
+   "scenario": "工具完成、结果提交前杀 Worker",
+   "expected": "外部状态对账后只提交一次有效结果",
+   "test": "tests/integration/a03-a04-a07-stream-recovery.test.ts (A04) + tests/fault-injection/kill-worker.ts",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A05",
+   "scenario": "两个 Worker 抢同一任务，旧 Worker 迟到",
+   "expected": "只有当前 fencing token 可推进状态",
+   "test": "tests/integration/a02-a05-gate-fencing.test.ts (A05)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A06",
+   "scenario": "一项长实验运行时暂停目标",
+   "expected": "新任务停止派发，当前动作按策略排空或终止",
+   "test": "tests/integration/a06-a08-pause-budget.test.ts (A06)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A07",
+   "scenario": "用户暂停后服务重启",
+   "expected": "目标仍为暂停，不自动复活",
+   "test": "tests/integration/a03-a04-a07-stream-recovery.test.ts (A07)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A08",
+   "scenario": "预算有未结算模型调用且接近耗尽",
+   "expected": "不把未知费用归零；禁止越限新调用",
+   "test": "tests/integration/a06-a08-pause-budget.test.ts (A08)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A09",
+   "scenario": "两个候选并发申请发布",
+   "expected": "CAS 保证单一父版本被替换一次",
+   "test": "tests/integration/a09-a12-evolution.test.ts (A09)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A10",
+   "scenario": "候选修改评分器或读取隐藏标签",
+   "expected": "访问失败，候选被隔离，不参与晋级",
+   "test": "tests/integration/a09-a12-evolution.test.ts (A10)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A11",
+   "scenario": "候选实际退化但 Reviewer 给高分",
+   "expected": "程序评测阻断发布",
+   "test": "tests/integration/a09-a12-evolution.test.ts (A11)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A12",
+   "scenario": "小样本无显著差异",
+   "expected": "输出证据不足，不伪装成方向失败",
+   "test": "tests/integration/a09-a12-evolution.test.ts (A12)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A13",
+   "scenario": "同一错误重试多次",
+   "expected": "触发诊断/改路线，不无限原样循环",
+   "test": "tests/integration/a13-a18-research-meta.test.ts (A13)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A14",
+   "scenario": "报告引用不存在的实验或文献",
+   "expected": "引用检查失败，不进入完成状态",
+   "test": "tests/integration/a13-a18-research-meta.test.ts (A14)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A15",
+   "scenario": "新版本灰度触发关键回归",
+   "expected": "回滚指针，保留失败证据和受影响任务",
+   "test": "tests/integration/a13-a18-research-meta.test.ts (A15)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A16",
+   "scenario": "模型或依赖版本变化",
+   "expected": "形成新 RunSpec，旧实验仍能按锁定环境追溯",
+   "test": "tests/integration/a09-a12-evolution.test.ts (A16)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A17",
+   "scenario": "72 小时有界预算 soak，期间故障注入",
+   "expected": "记录中断、恢复、资源占用、未完成原因；没有无任务空转",
+   "test": "tests/soak/soak.ts",
+   "requires_real_llm": true,
+   "status": "PARTIAL",
+   "evidence": [
+    "docs/evidence/soak/ (5min bounded 2026-09-24 + 20min bounded 2026-09-25 with per-run budget guard)"
+   ],
+   "note": "2026-09-25: soak harness hardened (per-run budget delta guard, request timeouts, per-cycle logs); partial runs only — 72h NOT executed"
+  },
+  {
+   "id": "A18",
+   "scenario": "新优化器只擅长已见任务",
+   "expected": "外层新任务比较不通过，不切换默认优化器",
+   "test": "tests/integration/a13-a18-research-meta.test.ts (A18)",
+   "requires_real_llm": false,
+   "status": "PASS"
+  },
+  {
+   "id": "A19",
+   "scenario": "OptimizerPort：纪元守卫、计量反射代理、真实后端回路、提案注册与构建、epoch 结算",
+   "expected": "未知后端与错误模式被拒；后端真实运行且预算不越界；提案走同一评测/发布管线（不自批）；纪元仅按严格margin切换",
+   "test": "tests/unit/optimizer-contracts.test.ts + tests/integration/a19-optimizer-port.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md",
+    "docs/evidence/optimizer-epoch-trial/trial-goal_66e3eb801e694c89.json",
+    "docs/evidence/incident-004-optimizer-sandbox-and-budget/README.md"
+   ]
+  },
+  {
+   "id": "A20",
+   "scenario": "图 revise 只重跑受影响节点及后继，保留有效前缀（§六.3）",
+   "expected": "变更节点+传递后继被重建；未受影响的已提交节点不重跑；跨图版本依赖按 (goal, node_key) 解析；空 diff 零扰动；非法显式图拒绝且不卡死",
+   "test": "tests/integration/a20-revise-affected.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "HANDOFF.md#第三轮迭代",
+    "packages/contracts/src/graph.ts#affectedSubgraph"
+   ]
+  },
+  {
+   "id": "A21",
+   "scenario": "跨 attempt 产物传播：前驱交付物进入后继工作区（问题账本 #5）",
+   "expected": "claim 时 spec 携带前驱产物清单；围栏下载端点只服务授权 digest（错 token 409、未授权 403）；worker 物化进工作区",
+   "test": "tests/integration/a21-propagation.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "HANDOFF.md#问题账本-5",
+    "workers/agent-worker/src/propagate.ts",
+    "workers/agent-worker/src/snapshot.ts"
+   ]
+  },
+  {
+   "id": "A22",
+   "scenario": "调度优先级：紧急目标抢占积压（问题账本 #3）",
+   "expected": "claim 排序 (priority ASC, created_at ASC)：高优先级胜过更早的低优先级；set_priority 命令即时改级（幂等、事件 goal.priority_changed）；同级保持 FIFO；1..9 之外在命令与首消息两个入口都被拒绝且无部分写入",
+   "test": "tests/integration/a22-priority-scheduling.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "apps/control/src/migrations/005_priority.sql",
+    "apps/control/src/scheduler.ts (claim ORDER BY g.priority, t.created_at)",
+    "HANDOFF.md#问题账本-3"
+   ]
+  },
+  {
+   "id": "A23",
+   "scenario": "SSE 跨服务重启重连：旧实例被杀停中流，新实例按旧游标续传（问题账本 #2）",
+   "expected": "旧实例杀停（socket 中断、内存丢失）后，新实例对同一 DB 以旧游标重放：游标后每个事件恰好一次、按 seq 有序（覆盖杀停前已提交未推送的在途窗口）；?after= 与 Last-Event-ID 头双路等价",
+   "test": "tests/integration/a23-sse-restart-reconnect.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "apps/control/src/routes/index.ts (/v1/events Last-Event-ID fallback)",
+    "apps/web/src/useEventStream.ts (cursor re-open path)",
+    "HANDOFF.md#问题账本-2"
+   ]
+  },
+  {
+   "id": "A24",
+   "scenario": "RESULT 结算策略（问题账本 #1）：格式性失败不浪费 attempt，两运行时一致",
+   "expected": "可解析 RESULT 原样透传；不可解析但有文本 → SUCCEEDED + result_format(passed=false) + 快照兜底交付物；无文本 → FAILED 且不浪费重问；末轮强制收尾禁工具（loop 与 pi 双运行时确定性验证）",
+   "test": "tests/unit/result-synthesis.test.ts + tests/unit/runtime-settlement.test.ts",
+   "requires_real_llm": false,
+   "status": "PASS",
+   "evidence": [
+    "workers/agent-worker/src/result-synthesis.ts",
+    "HANDOFF.md#问题账本-1"
+   ]
+  },
+  {
+   "id": "A25",
+   "scenario": "第三优化器后端 openevolve@0.3.2 接入 OptimizerPort 并跑真实 epoch 试炼",
+   "expected": "注册表收口（未知后端不可自注册，新后端同样受纪元守卫约束）；后端子进程零密钥（回环 shim 将 OpenAI 兼容调用转为计量代理）；被评代码全部走 candidate_runner 沙箱；真实试炼：40/40 指标调用 + 10 次计量 LLM，best==seed 诚实 0 提案，结算保留现任",
+   "test": "tests/unit/optimizer-contracts.test.ts + scripts/demo-optimizer-epoch.ts (CHALLENGER=openevolve@0.3.2)",
+   "requires_real_llm": true,
+   "status": "PASS",
+   "evidence": [
+    "optimizers/openevolve-backend/backend.py",
+    "docs/evidence/optimizer-epoch-trial/trial-algorithm-search.bin-packing-gap-goal_a184045a4a614540.json"
+   ]
+  }
+ ],
+ "real_model_smoke": {
+  "test": "tests/contract/deepseek-smoke.test.ts",
+  "status": "PASS",
+  "recorded": {
+   "provider": "deepseek",
+   "model_served": "deepseek-chat",
+   "usage": "见事件 model.call_completed (prompt/completion tokens + cost_usd)"
+  }
+ },
+ "extra_evidence": {
+  "browser_e2e": "tests/e2e/main-path.spec.ts + docs/evidence/e2e/*.png",
+  "evolution_loop_demo": "scripts/demo-evolution.ts + docs/evidence/evolution-demo/",
+  "incidents": [
+   "docs/evidence/incident-001-sandbox-cwd/",
+   "docs/evidence/incident-002-runpython-abs-path/",
+   "docs/evidence/incident-003-root-litter/"
+  ],
+  "known_limits": "HANDOFF.md 未完成/延期一节"
+ }
+}

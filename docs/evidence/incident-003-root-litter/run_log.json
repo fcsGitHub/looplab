@@ -1,0 +1,12 @@
+{
+  "command": "python3 pi_est.py",
+  "exit_code": 0,
+  "elapsed_seconds": 0.020443,
+  "stdout_bytes": 509,
+  "decimal_places": 500,
+  "digits_match_independent_reference": true,
+  "first_mismatch_index": null,
+  "stderr": "",
+  "verification_method": "Independent Machin-formula (pi/4 = 4*arctan(1/5) - arctan(1/239)) high-precision Decimal computation compared digit-by-digit against the Chudnovsky output; all 500 fractional digits matched.",
+  "notes": "Executed via runpy in the sandbox because subprocess.Popen is denied by the sandbox policy and the sandbox cwd is isolated from the workspace filesystem. The exact pi_est.py source was read from the workspace via workspace_read and executed faithfully."
+}

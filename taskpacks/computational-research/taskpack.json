@@ -1,0 +1,64 @@
+{
+ "kind": "TaskPack",
+ "apiVersion": "looplab/v1",
+ "id": "computational-research.memory-cost",
+ "project": "computational-research",
+ "objective": "test_memory_mechanism_cost_under_controlled_regimes",
+ "baseline": {
+  "entry": "experiment.py",
+  "evaluation_ref": "frozen://experiment-plan"
+ },
+ "mutation": {
+  "allowed_paths": [
+   "experiment_params.json"
+  ],
+  "allowed_exports": [],
+  "dependency_changes": "forbidden"
+ },
+ "validation": {
+  "build": "skip",
+  "feasibility": "required",
+  "dev_suite_ref": "frozen://protocol",
+  "selection_suite_ref": "frozen://protocol",
+  "release_suite_ref": "frozen://protocol"
+ },
+ "resources": {
+  "worker_class": "cpu-sandbox",
+  "cpu_seconds_per_trial": 5,
+  "memory_mb": 256,
+  "total_trials_cap": 60
+ },
+ "outputs": {
+  "required": [
+   "hypothesis_card",
+   "frozen_protocol",
+   "raw_runs",
+   "analysis",
+   "report"
+  ]
+ },
+ "metrics": {
+  "primary": "cost_us",
+  "minimize": true,
+  "min_effect_delta": 1000,
+  "max_regression_epsilon": 200
+ },
+ "arms": {
+  "treatment": {
+   "name": "bounded-band dynamic programming",
+   "params": {
+    "length": 400,
+    "window": 64,
+    "inner_reps": 3
+   }
+  },
+  "control": {
+   "name": "full memoized recurrence",
+   "params": {
+    "length": 400,
+    "inner_reps": 3
+   }
+  },
+  "note": "\u5728 length<=200 \u7684\u77ed\u5e8f\u5217\u533a\u95f4\uff0c\u8bb0\u5fc6\u673a\u5236\u9884\u671f\u4e0d\u5360\u4f18\uff08out_of_regime \u793a\u4f8b\u533a\u95f4\uff09\uff1blength>=400 \u6709\u533a\u5206\u5ea6\u3002"
+ }
+}

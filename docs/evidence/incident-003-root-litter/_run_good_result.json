@@ -1,0 +1,186 @@
+{
+ "contract_version": "bin-packing/v1",
+ "suite_ref": "dev://algorithm-search.bin-packing",
+ "layer": "dev",
+ "primary_metric": "bins_avg",
+ "primary_value": 0.0,
+ "baseline_value": 32.916667,
+ "paired_delta": null,
+ "hard_constraints": [
+  {
+   "name": "candidate_runs",
+   "passed": true,
+   "detail": "ok"
+  },
+  {
+   "name": "no_sandbox_violation",
+   "passed": true,
+   "detail": "ok"
+  },
+  {
+   "name": "feasibility",
+   "passed": false,
+   "detail": "infeasible packing produced"
+  },
+  {
+   "name": "runtime",
+   "passed": true,
+   "detail": "per-problem limit 500ms"
+  }
+ ],
+ "trials": [
+  {
+   "task_id": "dev-1000",
+   "seed": 1000,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.008
+  },
+  {
+   "task_id": "dev-1001",
+   "seed": 1001,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.002
+  },
+  {
+   "task_id": "dev-1002",
+   "seed": 1002,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1003",
+   "seed": 1003,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1004",
+   "seed": 1004,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1005",
+   "seed": 1005,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1006",
+   "seed": 1006,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1007",
+   "seed": 1007,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.003
+  },
+  {
+   "task_id": "dev-1008",
+   "seed": 1008,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1009",
+   "seed": 1009,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.003
+  },
+  {
+   "task_id": "dev-1010",
+   "seed": 1010,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  },
+  {
+   "task_id": "dev-1011",
+   "seed": 1011,
+   "value": -1,
+   "feasible": false,
+   "runtime_ms": 0.001
+  }
+ ],
+ "verdict": "REJECTED",
+ "reason": "hard constraint failed",
+ "baseline_trials": [
+  {
+   "task_id": "dev-1000",
+   "bins": 32,
+   "runtime_ms": 0.06
+  },
+  {
+   "task_id": "dev-1001",
+   "bins": 32,
+   "runtime_ms": 0.058
+  },
+  {
+   "task_id": "dev-1002",
+   "bins": 28,
+   "runtime_ms": 0.05
+  },
+  {
+   "task_id": "dev-1003",
+   "bins": 35,
+   "runtime_ms": 0.063
+  },
+  {
+   "task_id": "dev-1004",
+   "bins": 31,
+   "runtime_ms": 0.052
+  },
+  {
+   "task_id": "dev-1005",
+   "bins": 29,
+   "runtime_ms": 0.055
+  },
+  {
+   "task_id": "dev-1006",
+   "bins": 36,
+   "runtime_ms": 0.058
+  },
+  {
+   "task_id": "dev-1007",
+   "bins": 33,
+   "runtime_ms": 0.054
+  },
+  {
+   "task_id": "dev-1008",
+   "bins": 35,
+   "runtime_ms": 0.06
+  },
+  {
+   "task_id": "dev-1009",
+   "bins": 35,
+   "runtime_ms": 0.056
+  },
+  {
+   "task_id": "dev-1010",
+   "bins": 33,
+   "runtime_ms": 0.056
+  },
+  {
+   "task_id": "dev-1011",
+   "bins": 36,
+   "runtime_ms": 0.063
+  }
+ ],
+ "evaluator_digest": "c4a9c11c3cd066346c5e29a5f408e0274eda27e55a16b825249bc1e6a6cd0beb",
+ "environment": {
+  "python": "3.11.5",
+  "platform": "win32"
+ }
+}

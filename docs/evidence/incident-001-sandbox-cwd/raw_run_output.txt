@@ -1,0 +1,23 @@
+COMMAND: python prime.py
+CWD:     D:\project\looplab
+PYTHON:  D:\software\miniconda\python.exe (sys.executable)
+EXIT CODE: 0
+
+=== STDOUT (verbatim) ===
+     input |   expected |     actual | pass
+------------------------------------------------
+         2 |       True |       True | True
+         3 |       True |       True | True
+         1 |      False |      False | True
+         0 |      False |      False | True
+        -7 |      False |      False | True
+         4 |      False |      False | True
+        97 |       True |       True | True
+       100 |      False |      False | True
+      7919 |       True |       True | True
+       '7' | <class 'TypeError'> | <class 'TypeError'> | True
+------------------------------------------------
+summary: 10/10 passed
+
+=== STDERR (verbatim) ===
+<empty>

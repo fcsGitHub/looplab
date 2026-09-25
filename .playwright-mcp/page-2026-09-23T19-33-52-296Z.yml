@@ -1,0 +1,35 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e17]:
+    - generic [ref=f1e18]:
+      - generic [ref=f1e19]: LoopLab
+      - generic [ref=f1e20]: 未选择目标
+    - generic [ref=f1e21]:
+      - generic [ref=f1e22]: 断开
+      - button "退出" [ref=f1e23] [cursor=pointer]
+  - generic [ref=f1e24]:
+    - complementary "项目与会话" [ref=f1e25]:
+      - generic [ref=f1e26]: 项目
+      - button "Harness 工具/上下文改进" [ref=f1e27] [cursor=pointer]
+      - button "CPU 算法搜索" [ref=f1e28] [cursor=pointer]
+      - button "计算型科研" [ref=f1e29] [cursor=pointer]
+      - generic [ref=f1e30]:
+        - text: 会话
+        - button "+ 新建 (N)" [active] [ref=f1e31] [cursor=pointer]
+      - button "新会话" [ref=f1e51] [cursor=pointer]
+    - region "Agent 区" [ref=f1e34]:
+      - log [ref=f1e35]:
+        - generic [ref=f1e36]: 发送目标后，Coordinator 会规划任务图并开始执行。
+      - button "任务状态栏 (T)" [ref=f1e37] [cursor=pointer]
+      - generic [ref=f1e38]:
+        - textbox "描述你的目标…" [ref=f1e39]
+        - generic [ref=f1e40]:
+          - button "总结进展" [ref=f1e41] [cursor=pointer]
+          - button "换路线" [ref=f1e42] [cursor=pointer]
+          - button "发送 ⏎" [disabled] [ref=f1e43] [cursor=pointer]
+    - region "工作区" [ref=f1e44]:
+      - tablist "工作区视图" [ref=f1e45]:
+        - tab "当前工作 1" [selected] [ref=f1e46] [cursor=pointer]
+        - tab "运行记录 2" [ref=f1e47] [cursor=pointer]
+        - tab "演进与版本 3" [ref=f1e48] [cursor=pointer]
+        - tab "证据与资产 4" [ref=f1e49] [cursor=pointer]
+      - generic [ref=f1e50]: 选择或创建一个会话并发送目标。

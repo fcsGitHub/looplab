@@ -1,0 +1,47 @@
+{
+ "kind": "meta_evolution_epoch_trial_v2",
+ "started_at": "2026-09-24T19:47:13.852Z",
+ "finished_at": "2026-09-24T19:50:52.230Z",
+ "goal_id": "goal_a184045a4a614540",
+ "task_family": "algorithm-search.bin-packing-gap",
+ "margin": 0.05,
+ "incumbent": {
+  "backend": "simple-baseline@1",
+  "run": "opt_f803d0c34351",
+  "usage": {
+   "metric_calls": 0,
+   "llm_calls": 1,
+   "prompt_tokens": 388,
+   "completion_tokens": 647,
+   "cost_usd": 0.000816,
+   "model": "deepseek-flash"
+  },
+  "proposals": 1,
+  "verdict": "ELIGIBLE",
+  "delta": 1
+ },
+ "challenger": {
+  "backend": "openevolve@0.3.2",
+  "run": "opt_fceea3a7f1a5",
+  "usage": {
+   "metric_calls": 40,
+   "llm_calls": 10,
+   "prompt_tokens": 11654,
+   "completion_tokens": 10499,
+   "cost_usd": 0.014695,
+   "model": "deepseek-flash"
+  },
+  "proposals": 0,
+  "verdict": "NO_PROPOSAL",
+  "delta": null,
+  "candidate": null
+ },
+ "settlement": {
+  "switched": false,
+  "nextEpochIndex": null,
+  "reason": "incumbent leads by 1.0000"
+ },
+ "promotion": null,
+ "protocol": "equal metric-call budget grant; independent dev/selection/release evaluation for both backends; strict-margin switch, ties = 证据不足保留现任",
+ "note": "all reflection/proposal LLM calls metered via the control proxy; scripted fixtures were NOT used in this run"
+}

@@ -1,0 +1,49 @@
+{
+  "protocol_id": "diag-freeze-att_462e0da31765409a",
+  "version": "1.0.0",
+  "frozen_at_utc": "SEE_baseline.json",
+  "scope": "diagnosis-of-repeated-failure",
+  "note": "This protocol freezes the DIAGNOSIS experiment (environment probing), NOT the original evaluation protocol, which was unreachable from this workspace (0/7 required inputs readable).",
+  "environment": {
+    "python": "3.11.5",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "workspace": "D:\\project\\looplab\\data\\workspaces\\att_462e0da31765409a",
+    "sandbox_read_scope": "workspace-only",
+    "sandbox_subprocess": "denied"
+  },
+  "probes": [
+    {
+      "id": "P1_workspace_provisioning",
+      "method": "os.listdir(workspace)",
+      "expected": "task inputs present",
+      "observed": "0 files",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "P2_out_of_workspace_read",
+      "method": "open(path).read(1) for 8 candidate inputs",
+      "expected": "readable",
+      "observed": "8/8 PermissionError (LOOPLAB_SANDBOX denied)",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "P3_subprocess",
+      "method": "subprocess.run(['git','--version'])",
+      "expected": "available",
+      "observed": "PermissionError: subprocess.Popen denied",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "P4_determinism",
+      "method": "repeat P2 access 3x",
+      "expected": "same outcome each time",
+      "observed": "['denied','denied','denied']",
+      "verdict": "PASS (failure is deterministic)"
+    }
+  ],
+  "acceptance_criteria": {
+    "task_completable": false,
+    "reason": "required inputs unreachable (0/7) and subprocess denied",
+    "retry_policy": "FORBIDDEN - failure proven deterministic"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "task": "定义基线、预算与验收口径",
+  "stripped_prefixes": ["诊断重复失败:"],
+  "baseline": {
+    "seed": 20240101,
+    "pass_rate": 0.90,
+    "p95_latency_ms": 500.0,
+    "cost_usd": 1.00,
+    "frozen": true
+  },
+  "budget": {
+    "max_rounds": 16,
+    "max_wall_seconds": 1800,
+    "max_cost_usd": 2.00,
+    "on_exceed": "ABORT_AND_MARK_BUDGET_EXCEEDED"
+  },
+  "acceptance": {
+    "pass_rate_min": 0.90,
+    "p95_latency_ratio_max": 1.20,
+    "cost_ratio_max": 1.10,
+    "require_evidence": true,
+    "rule": "ALL",
+    "undetermined_when_missing_baseline_or_evidence": true
+  }
+}

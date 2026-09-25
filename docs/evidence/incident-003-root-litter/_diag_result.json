@@ -1,0 +1,186 @@
+{
+ "contract_version": "bin-packing/v1",
+ "suite_ref": "dev://algorithm-search.bin-packing",
+ "layer": "dev",
+ "primary_metric": "bins_avg",
+ "primary_value": 32.916667,
+ "baseline_value": 32.916667,
+ "paired_delta": 0.0,
+ "hard_constraints": [
+  {
+   "name": "candidate_runs",
+   "passed": true,
+   "detail": "ok"
+  },
+  {
+   "name": "no_sandbox_violation",
+   "passed": true,
+   "detail": "ok"
+  },
+  {
+   "name": "feasibility",
+   "passed": true,
+   "detail": "all items packed within capacity on every problem"
+  },
+  {
+   "name": "runtime",
+   "passed": true,
+   "detail": "per-problem limit 500ms"
+  }
+ ],
+ "trials": [
+  {
+   "task_id": "dev-1000",
+   "seed": 1000,
+   "value": 32,
+   "feasible": true,
+   "runtime_ms": 0.075
+  },
+  {
+   "task_id": "dev-1001",
+   "seed": 1001,
+   "value": 32,
+   "feasible": true,
+   "runtime_ms": 0.072
+  },
+  {
+   "task_id": "dev-1002",
+   "seed": 1002,
+   "value": 28,
+   "feasible": true,
+   "runtime_ms": 0.064
+  },
+  {
+   "task_id": "dev-1003",
+   "seed": 1003,
+   "value": 35,
+   "feasible": true,
+   "runtime_ms": 0.078
+  },
+  {
+   "task_id": "dev-1004",
+   "seed": 1004,
+   "value": 31,
+   "feasible": true,
+   "runtime_ms": 0.081
+  },
+  {
+   "task_id": "dev-1005",
+   "seed": 1005,
+   "value": 29,
+   "feasible": true,
+   "runtime_ms": 0.071
+  },
+  {
+   "task_id": "dev-1006",
+   "seed": 1006,
+   "value": 36,
+   "feasible": true,
+   "runtime_ms": 0.074
+  },
+  {
+   "task_id": "dev-1007",
+   "seed": 1007,
+   "value": 33,
+   "feasible": true,
+   "runtime_ms": 0.133
+  },
+  {
+   "task_id": "dev-1008",
+   "seed": 1008,
+   "value": 35,
+   "feasible": true,
+   "runtime_ms": 0.111
+  },
+  {
+   "task_id": "dev-1009",
+   "seed": 1009,
+   "value": 35,
+   "feasible": true,
+   "runtime_ms": 0.097
+  },
+  {
+   "task_id": "dev-1010",
+   "seed": 1010,
+   "value": 33,
+   "feasible": true,
+   "runtime_ms": 0.082
+  },
+  {
+   "task_id": "dev-1011",
+   "seed": 1011,
+   "value": 36,
+   "feasible": true,
+   "runtime_ms": 0.079
+  }
+ ],
+ "verdict": "INCONCLUSIVE",
+ "reason": "|delta| 0.0000 below pre-registered effect 0.05 on 12 problems; evidence insufficient, direction neither supported nor refuted",
+ "baseline_trials": [
+  {
+   "task_id": "dev-1000",
+   "bins": 32,
+   "runtime_ms": 0.059
+  },
+  {
+   "task_id": "dev-1001",
+   "bins": 32,
+   "runtime_ms": 0.057
+  },
+  {
+   "task_id": "dev-1002",
+   "bins": 28,
+   "runtime_ms": 0.051
+  },
+  {
+   "task_id": "dev-1003",
+   "bins": 35,
+   "runtime_ms": 0.063
+  },
+  {
+   "task_id": "dev-1004",
+   "bins": 31,
+   "runtime_ms": 0.051
+  },
+  {
+   "task_id": "dev-1005",
+   "bins": 29,
+   "runtime_ms": 0.054
+  },
+  {
+   "task_id": "dev-1006",
+   "bins": 36,
+   "runtime_ms": 0.058
+  },
+  {
+   "task_id": "dev-1007",
+   "bins": 33,
+   "runtime_ms": 0.054
+  },
+  {
+   "task_id": "dev-1008",
+   "bins": 35,
+   "runtime_ms": 0.06
+  },
+  {
+   "task_id": "dev-1009",
+   "bins": 35,
+   "runtime_ms": 0.055
+  },
+  {
+   "task_id": "dev-1010",
+   "bins": 33,
+   "runtime_ms": 0.055
+  },
+  {
+   "task_id": "dev-1011",
+   "bins": 36,
+   "runtime_ms": 0.061
+  }
+ ],
+ "evaluator_digest": "c4a9c11c3cd066346c5e29a5f408e0274eda27e55a16b825249bc1e6a6cd0beb",
+ "environment": {
+  "python": "3.11.5",
+  "platform": "win32"
+ }
+}

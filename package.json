@@ -1,0 +1,38 @@
+{
+  "name": "looplab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-improving agent framework platform (design: SELF_IMPROVING_AGENT_DESIGN.md)",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json --noEmit",
+    "test:unit": "vitest run tests/unit tests/contract",
+    "test:integration": "vitest run tests/integration",
+    "test": "vitest run tests/unit tests/contract tests/integration",
+    "dev:control": "tsx apps/control/src/index.ts",
+    "dev:worker": "tsx workers/agent-worker/src/index.ts",
+    "dev:web": "npm run dev --prefix apps/web",
+    "start": "npm run build && node apps/control/dist/index.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1"
+  }
+}

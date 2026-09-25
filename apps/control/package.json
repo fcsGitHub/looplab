@@ -1,0 +1,21 @@
+{
+  "name": "@looplab/control",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/static": "^10.1.4",
+    "@looplab/contracts": "*",
+    "@looplab/llm": "*",
+    "@looplab/policy": "*",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0",
+    "tsx": "^4.19.0",
+    "zod": "^3.23.8"
+  }
+}

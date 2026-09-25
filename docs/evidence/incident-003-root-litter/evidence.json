@@ -1,0 +1,11 @@
+{
+  "workspace": "D:\\project\\looplab\\data\\workspaces\\att_9c414432c2464b68",
+  "checks": [
+    {"name": "overlay_write_visible_in_overlay", "value": true},
+    {"name": "overlay_file_on_real_disk", "value": false},
+    {"name": "python_write_on_real_disk", "value": true},
+    {"name": "python_file_visible_in_overlay", "value": false},
+    {"name": "real_disk_git_dir", "value": false},
+    {"name": "overlay_lists_git", "value": true}
+  ]
+}

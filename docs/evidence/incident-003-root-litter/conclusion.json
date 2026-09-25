@@ -1,0 +1,15 @@
+{
+  "task": "沉淀最终产物与结论",
+  "failures": 3,
+  "error": "unknown",
+  "root_cause": "workspace overlay 与 run_python 真实磁盘为两套互不相通的文件系统视图；产物写入视图与校验读取视图不一致，导致校验恒失败并退化为 unknown",
+  "evidence": {
+    "overlay_only_file": "_probe.txt (workspace_read 可见, 磁盘不存在)",
+    "disk_only_file": "_pyprobe.txt (磁盘存在, workspace_list 不可见)",
+    "disk_git_dir_exists": false,
+    "overlay_shows_git": true
+  },
+  "recommendation": "修复 harness 使两视图统一；否则对产物双写（workspace_write + run_python）",
+  "abandon": false,
+  "confidence": "high"
+}
