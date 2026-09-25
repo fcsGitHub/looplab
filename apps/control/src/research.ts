@@ -139,7 +139,12 @@ export class ResearchService {
     }
 
     const n = paired.length;
-    const planSeeds = JSON.parse(plan.seeds).length * (JSON.parse(plan.protocol).arms.length - 1 || 1);
+    // pg hands jsonb back as already-parsed objects; tolerate strings too
+    // (double-parsing an object used to throw and 500 the analyze route)
+    const asValue = (v: unknown) => (typeof v === "string" ? JSON.parse(v) : v);
+    const seedsArr = asValue(plan.seeds) as number[];
+    const protocol = asValue(plan.protocol) as { arms: { name: string }[] };
+    const planSeeds = seedsArr.length * (protocol.arms.length - 1 || 1);
     if (n < Math.max(2, Math.min(minReps, planSeeds))) {
       return {
         verdict: "insufficient_power",

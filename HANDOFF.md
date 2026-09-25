@@ -16,6 +16,14 @@
 测试 `tests/integration/a31-plan-isolation-throttle.test.ts`（2，含真实 runner 执行）。
 全量 **102 passed / 0 failed**；typecheck/build 双绿。
 
+### 活体验证补遗（同轮）
+
+生产实例首跑完整科研链路（假设→冻结→执行→分析）时又暴露一处：`analyze` 对
+pg 已解析的 jsonb 列（seeds/protocol）再做 `JSON.parse` → 必抛 SyntaxError 500。
+修复为宽容解析（对象直用、字符串才 parse）；上线复验：真实 6 runs 配对分析
+产出 `supported_in_scope`（n=3，t=-7.9，记忆化确有成本优势）——科研链路首次
+经 HTTP API 全线贯通。
+
 ---
 
 更新时间：2026-09-26 01:40（P21 SSE 属主隔离 + 审批/总览 UI 轮）· 分支：`main`
