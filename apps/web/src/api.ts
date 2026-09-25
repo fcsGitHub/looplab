@@ -61,6 +61,11 @@ export class Api {
   artifactUrl(digest: string) { return `${this.base}/v1/artifacts/${digest}`; }
   settingsModel() { return this.get("/v1/settings/model"); }
   metrics() { return this.get("/v1/metrics"); }
+
+  // ---- optimizer / meta-evolution (RSI) ----
+  optimizerRuns(goalId: string) { return this.get(`/v1/goals/${goalId}/optimizer/runs`) as Promise<{ runs: OptimizerRun[] }>; }
+  metaEpoch() { return this.get("/v1/meta/epoch") as Promise<{ epoch: EpochInfo | null }>; }
+  runOptimizerRound(goalId: string, body: Record<string, unknown> = {}) { return this.post(`/v1/goals/${goalId}/optimizer/run-round`, body); }
 }
 
 export interface Project { id: string; slug: string; name: string; }
@@ -76,12 +81,13 @@ export interface WorkCard {
   last_heartbeat_at: string | null;
   last_tool_progress_at: string | null;
 }
-export interface Task { id: string; node_key: string; role: string; kind: string; title: string; state: string; failure_count: number; visit_count: number; }
+export interface Task { id: string; node_key: string; role: string; kind: string; title: string; state: string; failure_count: number; visit_count: number; depends_on?: string[]; graph_version?: string; }
 export interface Attempt { id: string; task_id: string; attempt_no: number; worker_id: string | null; status: string; error_class: string | null; model_calls: number; settled_usd: string; started_at: string | null; ended_at: string | null; task_title: string; role: string; }
 export interface PlatformEvent {
   seq: number; event_id: string; aggregate_type: string; aggregate_id: string;
   aggregate_seq: number; event_type: string; goal_id: string | null;
   actor: { kind: string; id: string } | null; lease_epoch: number | null;
+  causation_id?: string | null;
   payload: any; occurred_at: string;
 }
 export interface Candidate {
@@ -90,6 +96,14 @@ export interface Candidate {
 }
 export interface ReleaseRow { id: string; candidate_id: string; kind: string; status: string; parent_release: string | null; created_at: string; }
 export interface Pointer { scope: string; candidate_id: string; release_id: string; pointer_version: number; }
+export interface OptimizerRun {
+  id: string; backend: string; mode: string; epoch_index: number | null; status: string;
+  budget_max_metric_calls: number | null; budget_max_llm_cost_usd: number | null;
+  spent_usd: string | number; llm_calls: number; metric_calls: number;
+  stopped_reason: string | null; created_at: string; ended_at: string | null;
+  reflection: string | null;
+}
+export interface EpochInfo { index: number; active_backend: string; frozen: boolean; status: string; }
 export interface EvidenceBundle {
   artifacts: { digest: string; name: string; media_type: string; size_bytes: number; producer_role: string }[];
   claims: { id: string; text: string; stance: string; scope: string; kind: string }[];

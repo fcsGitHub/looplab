@@ -1,5 +1,27 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-25 19:00（UI 全面改造轮）· 分支：`impl/platform`（本地，未推送）
+
+## 本轮新增：UI/UX 全面改造（2026-09-25）
+
+调研基线：`docs/research/rsi-ui-research.md`（RSI 论文图谱 + DeepSeek Harness 轨迹视图一手调研 + 训练控制台美学）。
+范围纯前端（`apps/web`），控制内核零改动。
+
+| 片 | 内容 | 证据 |
+|---|---|---|
+| S1 | 设计系统重写：5 级表面 token、角色配色体系、暗/亮主题切换（localStorage 持久化）、细滚动条/焦点环/动效降级 | `apps/web/src/styles.css`、`docs/evidence/ui-overhaul/01/06` |
+| S2 | Agent 轨迹视图 `Trajectory.tsx`：Input/Model/Tools 三车道活动带（对标 DSH Trajectory）、结构化时间线（causation_id 配对算耗时/token/成本）、车道过滤、跟随滚动、2s 实时刷新；替换原 `<pre>` 原始日志 | `docs/evidence/ui-overhaul/12/13/16-*.png` |
+| S3 | RSI 实时曲线：零依赖 SVG 图表 `charts.tsx`（面积渐变/虚线基线/最新值标注）；演进视图重构 `Evolution.tsx`——epoch 状态条、4 指标卡、评测曲线（`evaluation.completed` SSE 实时追加、按裁决着色、epoch 切换标线）、预算燃烧/指标调用双曲线（RUNNING 时 3s 轮询）、优化器运行表、"运行一轮优化"按钮 | `docs/evidence/ui-overhaul/30/31-*.png` |
+| S4 | 任务 DAG `TaskGraph.tsx`（拓扑分层 SVG、角色点/状态色/箭头边）；顶栏系统弹窗（`/v1/settings/model` + `/v1/metrics`，此前 UI 未接的两个端点） | `docs/evidence/ui-overhaul/05/10-*.png` |
+| S5 | 验证：35/35 单测过；官方 e2e 主路径 2/2 过（真实 LLM）；真实目标+真实 worker 全程截图 0 控制台错误；researcher 账号真实演进数据验证曲线渲染 | `docs/evidence/ui-overhaul/`、`data/ui-*-verify.log` |
+
+本轮修复的运行时发现：SSE 信封字段 `sequence` 未归一为 `seq`（曲线 NaN）；`run-round` 空 body 触发服务端 502（UI 现发 `{}` 并默认用 epoch 活跃后端 active 模式）；轨迹时间戳 UTC→本地时区。
+验证脚本：`scripts/ui-smoke.mjs`（无 LLM 冒烟）、`scripts/ui-live.mjs`（真实目标）、`scripts/ui-researcher.mjs`（真实演进数据 + 实时优化轮）。
+
+注意：根 `package.json` 的 `build`/`typecheck` 脚本引用 `tsconfig.build.json`，该文件从未入库（git 无记录）——属既有问题，本轮未触碰；web 应用经 `apps/web` 自身 tsconfig 构建验证。
+
+---
+
 更新时间：2026-09-24 24:00（第二轮迭代）· 分支：`impl/platform`（本地，未推送）
 
 ## 当前状态

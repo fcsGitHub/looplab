@@ -27,6 +27,15 @@ export function App() {
   const [view, setView] = useState<ViewTab>("work");
   const [inspector, setInspector] = useState<{ kind: string; id: string } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [showSys, setShowSys] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">(() =>
+    localStorage.getItem("looplab-theme") === "light" ? "light" : "dark",
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("looplab-theme", theme);
+  }, [theme]);
 
   const goalId = card?.goal_id ?? null;
   const stream = useEventStream(goalId);
@@ -180,7 +189,14 @@ export function App() {
     <div className="app">
       <header className="topbar" role="banner">
         <div className="topbar-goal">
-          <span className="brand">LoopLab</span>
+          <span className="brand">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 1.5a6.5 6.5 0 1 0 6.5 6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M14.5 4.5v3h-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" transform="translate(0.3 0.8) scale(0.85)"/>
+              <circle cx="8" cy="8" r="2" fill="currentColor"/>
+            </svg>
+            LoopLab
+          </span>
           {card ? (
             <>
               <span className={`state-chip ${stateClass}`}>{card.state}</span>
@@ -199,6 +215,34 @@ export function App() {
           <span className={`conn ${stream.connected ? "on" : "off"}`} title={stream.lastError ?? ""}>
             {stream.connected ? "已连接" : stream.resuming ? "按游标恢复…" : "断开"}
           </span>
+          <button
+            className="ghost theme-toggle"
+            onClick={() => setShowSys(true)}
+            title="系统：模型配置与服务指标"
+            aria-label="系统设置与指标"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
+              <path d="M8 1.8l.7 1.8a4.6 4.6 0 0 1 1.6.7l1.9-.6 1.4 2.4-1.2 1.5c.05.26.05.53 0 .8l1.2 1.5-1.4 2.4-1.9-.6a4.6 4.6 0 0 1-1.6.7L8 14.2l-.7-1.8a4.6 4.6 0 0 1-1.6-.7l-1.9.6-1.4-2.4 1.2-1.5a4.7 4.7 0 0 1 0-.8L2.4 6.1l1.4-2.4 1.9.6a4.6 4.6 0 0 1 1.6-.7L8 1.8Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            className="ghost theme-toggle"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "切换为亮色主题" : "切换为暗色主题"}
+            aria-label="切换主题"
+          >
+            {theme === "dark" ? (
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </button>
           <button className="ghost" onClick={async () => { await api.logout(); setUser(null); }}>退出</button>
         </div>
       </header>
@@ -229,7 +273,7 @@ export function App() {
             <div className="subagents" aria-label="子 Agent">
               {runningAttempts.map((a) => (
                 <button key={a.id} className="subagent-row" onClick={() => setInspector({ kind: "attempt", id: a.id })}>
-                  <span className="role-badge">{a.role}</span>
+                  <span className="role-badge" data-role={a.role}>{a.role}</span>
                   <span className="sa-title">{a.task_title}</span>
                   <span className="mono muted">{a.model_calls} calls · {a.worker_id}</span>
                   <span className="pulse" aria-label="运行中" />
@@ -242,6 +286,9 @@ export function App() {
             {messages.length === 0 && <div className="empty">发送目标后，Coordinator 会规划任务图并开始执行。</div>}
             {messages.map((m) => (
               <div key={m.id} className={`msg ${m.role}`}>
+                <div className="msg-meta">
+                  {m.role === "user" ? "你" : "LoopLab"} · {new Date(m.created_at).toLocaleTimeString("zh-CN", { hour12: false })}
+                </div>
                 <div className="msg-content">{m.content}</div>
               </div>
             ))}
@@ -265,7 +312,7 @@ export function App() {
               {tasks.length === 0 && <div className="empty">无任务</div>}
               {tasks.map((t) => (
                 <div key={t.id} className="task-row">
-                  <span className="dot" data-state={t.state} /> <span className="role-badge">{t.role}</span>
+                  <span className="dot" data-state={t.state} /> <span className="role-badge" data-role={t.role}>{t.role}</span>
                   <span className="task-title">{t.title}</span>
                   <span className="mono muted">{t.state}{t.failure_count > 0 ? ` · 失败${t.failure_count}次` : ""}</span>
                 </div>
@@ -313,6 +360,7 @@ export function App() {
         />
       )}
 
+      {showSys && <SystemModal onClose={() => setShowSys(false)} />}
       {confirmCancel && card && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="确认取消">
           <div className="modal">
@@ -331,11 +379,73 @@ export function App() {
   );
 }
 
+function SystemModal({ onClose }: { onClose: () => void }) {
+  const [model, setModel] = useState<any>(null);
+  const [metrics, setMetrics] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  useEffect(() => {
+    api.settingsModel().then(setModel).catch((e) => setErr(String(e?.message ?? e)));
+    api.metrics().then(setMetrics).catch(() => {});
+  }, []);
+  const fmtUptime = (s: number) => {
+    const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m ${Math.floor(s % 60)}s`;
+  };
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="系统" onClick={onClose}>
+      <div className="modal sys-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>系统</h3>
+        {err && <div className="err small">{err}</div>}
+        <div className="eyebrow">模型配置（密钥不出控制进程）</div>
+        {model ? (
+          <div className="sys-grid">
+            {"provider" in (model ?? {}) && <div><span className="eyebrow">Provider</span>{String(model.provider)}</div>}
+            {"model" in (model ?? {}) && <div><span className="eyebrow">Model</span><span className="mono">{String(model.model)}</span></div>}
+            {(model as any).models && (model as any).models.map((m: any, i: number) => (
+              <div key={i}><span className="eyebrow">{String(m.kind ?? m.scope ?? `model ${i + 1}`)}</span><span className="mono">{String(m.model ?? m.name ?? JSON.stringify(m))}</span></div>
+            ))}
+            {"key_fingerprint" in (model ?? {}) && <div><span className="eyebrow">密钥指纹</span><span className="mono">{String(model.key_fingerprint)}</span></div>}
+            {!("provider" in model) && !("models" in model) && <div className="mono small" style={{ gridColumn: "1/-1" }}>{JSON.stringify(model)}</div>}
+          </div>
+        ) : <div className="empty">加载中…</div>}
+        <div className="eyebrow">服务指标</div>
+        {metrics ? (
+          <div className="sys-grid">
+            <div><span className="eyebrow">运行时长</span>{fmtUptime(Number(metrics.uptime_s) || 0)}</div>
+            <div><span className="eyebrow">模型调用</span><span className="num">{metrics.model?.calls ?? 0} 次 · ${Number(metrics.model?.cost_usd ?? 0).toFixed(4)}</span></div>
+            <div><span className="eyebrow">事件</span><span className="num">{metrics.events?.count ?? 0}</span></div>
+            <div>
+              <span className="eyebrow">目标</span>
+              <span className="num">{(metrics.goals ?? []).map((g: any) => `${g.state}:${g.n}`).join("  ") || "—"}</span>
+            </div>
+            <div>
+              <span className="eyebrow">Attempts</span>
+              <span className="num">{(metrics.attempts ?? []).map((a: any) => `${a.status}:${a.n}`).join("  ") || "—"}</span>
+            </div>
+            <div>
+              <span className="eyebrow">编排器</span>
+              <span className="mono small">{metrics.orchestrator?.last_reconcile_at ? new Date(metrics.orchestrator.last_reconcile_at).toLocaleTimeString("zh-CN", { hour12: false }) : "—"}{metrics.orchestrator?.last_error ? ` · ${metrics.orchestrator.last_error}` : ""}</span>
+            </div>
+          </div>
+        ) : <div className="empty">加载中…</div>}
+        <div className="modal-actions">
+          <button onClick={onClose}>关闭 (Esc)</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SummaryCard({ card, onOpen }: { card: WorkCard; onOpen: () => void }) {
   return (
     <button className="summary-card" onClick={onOpen} title="打开检查器查看完整计划与预算分账">
       <div className="sc-row sc-head">
-        <span className="role-badge">Coordinator</span>
+        <span className="role-badge" data-role="Coordinator">Coordinator</span>
         <span className="mono muted">{card.graph_version ?? "无图"}</span>
         {card.waiting_reason && <span className="state-chip waiting">{card.waiting_reason}</span>}
       </div>

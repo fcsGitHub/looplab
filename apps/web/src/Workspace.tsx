@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, type Attempt, type Candidate, type Task, type WorkCard } from "./api";
 import type { EventStreamState } from "./useEventStream";
+import { Trajectory } from "./Trajectory";
+import { EvolutionView } from "./Evolution";
+import { TaskGraph } from "./TaskGraph";
 
 type InspectorSpec = { kind: string; id: string };
 
@@ -39,6 +42,9 @@ export function Workspace(props: {
           </span>
         </Row>
         <div className="eyebrow" style={{ marginTop: 12 }}>任务图</div>
+        {tasks.length > 0 && (
+          <TaskGraph tasks={tasks} onOpen={(id) => onOpenInspector({ kind: "task", id })} />
+        )}
         <div className="graph-mini">
           {tasks.map((t) => (
             <button key={t.id} className="node" data-state={t.state} onClick={() => onOpenInspector({ kind: "task", id: t.id })} title={`${t.title} · ${t.state}`}>
@@ -60,7 +66,7 @@ export function Workspace(props: {
             <span className="dot" data-state={a.status === "COMMITTED" ? "SUCCEEDED" : a.status} />
             <span className="mono">#{a.attempt_no}</span>
             <span className="sa-title">{a.task_title}</span>
-            <span className="role-badge">{a.role}</span>
+            <span className="role-badge" data-role={a.role}>{a.role}</span>
             <span className="mono muted">{a.status}</span>
             <span className="mono muted">{a.model_calls} calls · ${(Number(a.settled_usd) || 0).toFixed(4)}</span>
           </button>
@@ -70,52 +76,10 @@ export function Workspace(props: {
   }
 
   if (view === "evolution") {
-    return (
-      <div className="ws-body">
-        {candidates.length === 0 && <div className="empty">暂无候选。演进循环会从真实失败生成候选。</div>}
-        {candidates.map((c) => (
-          <button key={c.id} className={`run-row cand`} onClick={() => onOpenInspector({ kind: "candidate", id: c.id })}>
-            <span className={`state-chip ${c.status.toLowerCase()}`}>{c.status}</span>
-            <span className="mono">{c.digest.slice(0, 8)}</span>
-            <span className="sa-title">{c.title || c.kind}</span>
-            <span className="mono muted">{(c.history ?? []).length} 状态记录</span>
-          </button>
-        ))}
-        <ReleaseList goalId={goalId} />
-      </div>
-    );
+    return <EvolutionView goalId={goalId} candidates={candidates} stream={stream} onOpenInspector={onOpenInspector} />;
   }
 
   return <EvidenceView goalId={goalId} onOpenInspector={onOpenInspector} stream={stream} />;
-}
-
-function ReleaseList({ goalId }: { goalId: string }) {
-  const [releases, setReleases] = useState<Awaited<ReturnType<typeof api.releases>>["releases"]>([]);
-  const [pointers, setPointers] = useState<Awaited<ReturnType<typeof api.pointers>>["pointers"]>([]);
-  useEffect(() => {
-    api.releases(goalId).then((r) => setReleases(r.releases)).catch(() => {});
-    api.pointers().then((r) => setPointers(r.pointers)).catch(() => {});
-  }, [goalId]);
-  if (!releases.length && !pointers.length) return null;
-  return (
-    <>
-      <div className="eyebrow" style={{ marginTop: 12 }}>发布与指针</div>
-      {pointers.map((p) => (
-        <div key={p.scope} className="run-row static">
-          <span className="state-chip released">指针</span>
-          <span className="mono small">{p.scope}</span>
-          <span className="mono muted">v{p.pointer_version} · {p.release_id}</span>
-        </div>
-      ))}
-      {releases.map((r) => (
-        <div key={r.id} className="run-row static">
-          <span className={`state-chip ${r.status === "ROLLED_BACK" ? "rolled_back" : r.kind}`}>{r.status}</span>
-          <span className="mono small">{r.id}</span>
-          <span className="mono muted">{r.kind} · {fmtTime(r.created_at)}</span>
-        </div>
-      ))}
-    </>
-  );
 }
 
 function EvidenceView({ goalId, onOpenInspector, stream }: { goalId: string; onOpenInspector: (s: InspectorSpec) => void; stream: EventStreamState }) {
@@ -197,7 +161,7 @@ export function Inspector(props: {
         <span>{title}</span>
         <button className="ghost" onClick={onClose}>关闭 (Esc)</button>
       </div>
-      <div className="insp-body">
+      <div className={`insp-body ${spec.kind === "attempt" ? "traj-host" : ""}`}>
         {spec.kind === "goal" && props.card && (
           <>
             <Row label="目标">{props.card.objective}</Row>
@@ -220,12 +184,30 @@ export function Inspector(props: {
             </>
           );
         })()}
-        {spec.kind === "attempt" && (
-          <>
-            <Row label="事件日志（按时间）"><span className="mono small">原始事件，点击运行行刷新</span></Row>
-            <pre className="log mono">{detail ?? "加载中…"}</pre>
-          </>
-        )}
+        {spec.kind === "attempt" && (() => {
+          const att = props.attempts.find((a) => a.id === spec.id);
+          const live = !!att && ["LEASED", "STARTED", "RUNNING", "RESULT_PENDING"].includes(att.status);
+          return (
+            <>
+              {att && (
+                <div className="traj-host-pad">
+                  <Row label="任务">{att.task_title}</Row>
+                  <Row label="状态">
+                    <span className={`state-chip ${att.status.toLowerCase()}`}>{att.status}</span>
+                    <span className="mono muted small" style={{ marginLeft: 8 }}>
+                      {att.model_calls} 次模型调用 · ${(Number(att.settled_usd) || 0).toFixed(4)}
+                    </span>
+                  </Row>
+                </div>
+              )}
+              <Trajectory attemptId={spec.id} live={live} />
+              <details className="raw-events">
+                <summary className="muted small">原始事件 JSON（调试）</summary>
+                <pre className="log mono">{detail ?? "加载中…"}</pre>
+              </details>
+            </>
+          );
+        })()}
         {spec.kind === "candidate" && <CandidateDetail candidates={props.candidates} id={spec.id} />}
         {spec.kind === "claim" && <div className="empty">Claim 详情见证据页行内容。</div>}
         {spec.kind === "hypothesis" && <div className="empty">假设卡详情见证据页行内容。</div>}
