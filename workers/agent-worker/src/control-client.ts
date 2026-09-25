@@ -1,11 +1,20 @@
-// HTTP client for the control service (worker side). No DB access, no secrets.
+// HTTP client for the control service (worker side). No DB access, no secrets
+// other than the shared worker-plane token (x-worker-token), which the control
+// service requires on every worker API route when WORKER_TOKEN is configured.
 export class ControlClient {
-  constructor(private baseUrl: string) {}
+  constructor(private baseUrl: string, private workerToken = "") {}
+
+  private headers(extra?: Record<string, string>): Record<string, string> {
+    return {
+      ...(this.workerToken ? { "x-worker-token": this.workerToken } : {}),
+      ...extra,
+    };
+  }
 
   private async req(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
-      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      headers: this.headers(body !== undefined ? { "content-type": "application/json" } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     if (res.status === 204) return { status: 204, json: null };
@@ -59,7 +68,7 @@ export class ControlClient {
   uploadArtifact(attemptId: string, goalId: string, name: string, mediaType: string, body: Buffer): Promise<{ status: number; json: any }> {
     return fetch(`${this.baseUrl}/v1/artifacts`, {
       method: "POST",
-      headers: {
+      headers: this.headers({
         "content-type": "application/octet-stream",
         "content-length": String(body.byteLength),
         "x-artifact-name": encodeURIComponent(name),
@@ -68,13 +77,14 @@ export class ControlClient {
         "x-producer-role": "worker",
         "x-goal-id": goalId,
         "x-scope": "task",
-      },
+      }),
       body: new Uint8Array(body),
     }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
   }
   async downloadPropagated(attemptId: string, workerId: string, leaseEpoch: number, digest: string): Promise<Buffer | null> {
     const res = await fetch(
       `${this.baseUrl}/v1/attempts/${attemptId}/propagated/${digest}?worker_id=${encodeURIComponent(workerId)}&lease_epoch=${leaseEpoch}`,
+      { headers: this.headers() },
     );
     if (!res.ok) return null;
     return Buffer.from(await res.arrayBuffer());

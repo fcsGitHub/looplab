@@ -18,7 +18,7 @@ export interface TestEnv {
   close: () => Promise<void>;
 }
 
-export async function createTestEnv(opts: { leaseTtlMs?: number; deepseekBaseUrl?: string } = {}): Promise<TestEnv> {
+export async function createTestEnv(opts: { leaseTtlMs?: number; deepseekBaseUrl?: string; workerToken?: string; dailyBudgetUsd?: number } = {}): Promise<TestEnv> {
   const dbName = `looplab_test_${randomBytes(6).toString("hex")}`;
   const admin = new Pool({ connectionString: ADMIN_URL, max: 2 });
   await admin.query(`CREATE DATABASE ${dbName}`);
@@ -33,6 +33,8 @@ export async function createTestEnv(opts: { leaseTtlMs?: number; deepseekBaseUrl
     port: 0,
     leaseTtlMs: opts.leaseTtlMs ?? 60_000,
     workerHeartbeatMs: 100,
+    workerToken: opts.workerToken ?? "",
+    dailyBudgetUsd: opts.dailyBudgetUsd ?? 0,
     deepseek: {
       apiKey: process.env.DEEPSEEK_API_KEY ?? "sk-test-dummy-key-for-non-llm-tests",
       baseUrl: opts.deepseekBaseUrl ?? process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
@@ -72,8 +74,24 @@ export async function authedUser(env: TestEnv, username = "tester", password = "
   return {
     username,
     cookie: cookies,
-    get: (url: string) => env.inject({ method: "GET", url, headers: { cookie: cookies } }),
-    post: (url: string, payload?: unknown) => env.inject({ method: "POST", url, headers: { cookie: cookies }, payload }),
+    get: async (url: string) => await env.inject({ method: "GET", url, headers: { cookie: cookies } }),
+    post: async (url: string, payload?: Record<string, unknown>) => await env.inject({ method: "POST", url, headers: { cookie: cookies }, payload }),
+  };
+}
+
+/** Log in an existing user and return the same authed client helper shape. */
+export async function loginAs(env: TestEnv, username: string, password = "looplab") {
+  const res = await env.inject({
+    method: "POST", url: "/v1/auth/login",
+    payload: { username, password },
+  });
+  if (res.statusCode !== 200) throw new Error(`login failed: ${res.body}`);
+  const cookies = res.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  return {
+    username,
+    cookie: cookies,
+    get: async (url: string) => await env.inject({ method: "GET", url, headers: { cookie: cookies } }),
+    post: async (url: string, payload?: Record<string, unknown>) => await env.inject({ method: "POST", url, headers: { cookie: cookies }, payload }),
   };
 }
 
@@ -88,9 +106,9 @@ export function fixture(env: TestEnv) {
       );
       const ses = await db.query(
         "INSERT INTO chat_sessions (id, project_id, owner_id, title) VALUES ($1,$2,$3,$4) RETURNING id",
-        [`ses_${randomBytes(4).toString("hex")}`, prj.rows[0].id, userId, "t"],
+        [`ses_${randomBytes(4).toString("hex")}`, prj.rows[0]!.id, userId, "t"],
       );
-      return { projectId: prj.rows[0].id, sessionId: ses.rows[0].id };
+      return { projectId: prj.rows[0]!.id, sessionId: ses.rows[0]!.id };
     },
     async createGoalWithTasks(userId: string, projectId: string, sessionId: string, tasks: {
       key: string; role?: string; title?: string; depends_on?: string[];

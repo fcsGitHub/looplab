@@ -111,7 +111,7 @@ async function main() {
     const built = await req("POST", `/v1/goals/${goalId}/evolution/build`, { proposal_id: cha.json.proposalIds[0] });
     if (built.status !== 202) throw new Error(`challenger build failed: ${JSON.stringify(built.json)}`);
     challengerCandidate = built.json.candidate_id;
-    const r = await evaluateAndDelta(goalId, challengerCandidate);
+    const r = await evaluateAndDelta(goalId, challengerCandidate!);
     challengerImprovement = r.delta;
     challengerVerdict = r.verdict;
     console.log(`challenger independent eval: ${r.verdict} primary=${r.primary} baseline=${r.baseline} delta=${r.delta}`);

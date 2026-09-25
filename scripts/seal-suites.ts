@@ -9,7 +9,7 @@ const ROOT = path.resolve(new URL(".", import.meta.url).pathname.replace(/^\/([A
 const dataTaskpacks = path.join(ROOT, "data", "taskpacks");
 const sealedDir = path.join(ROOT, "sealed");
 
-function mulberry32(seed) {
+function mulberry32(seed: number) {
   let a = seed >>> 0;
   return function () {
     a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -19,7 +19,7 @@ function mulberry32(seed) {
   };
 }
 
-function binPackingProblems(prefix, seedStart, count, nItems) {
+function binPackingProblems(prefix: string, seedStart: number, count: number, nItems: number) {
   const problems = [];
   for (let i = 0; i < count; i++) {
     const seed = seedStart + i;
@@ -33,34 +33,34 @@ function binPackingProblems(prefix, seedStart, count, nItems) {
 // ---- FFD-gap curation helpers ----------------------------------------------
 // Reference heuristics used ONLY at provisioning time to select instances
 // where the FFD baseline provably has headroom. Candidates never see these.
-function ffdPack(items, capacity) {
+function ffdPack(items: number[], capacity: number) {
   const bins = [];
-  for (const s of [...items].sort((a, b) => b - a)) {
+  for (const s of [...items].sort((a: number, b: number) => b - a)) {
     let placed = false;
     for (const b of bins) {
-      if (b.reduce((x, y) => x + y, 0) + s <= capacity) { b.push(s); placed = true; break; }
+      if (b.reduce((x: number, y: number) => x + y, 0) + s <= capacity) { b.push(s); placed = true; break; }
     }
     if (!placed) bins.push([s]);
   }
   return bins;
 }
-function bfdPack(items, capacity) {
+function bfdPack(items: number[], capacity: number) {
   const bins = [];
-  for (const s of [...items].sort((a, b) => b - a)) {
+  for (const s of [...items].sort((a: number, b: number) => b - a)) {
     let bestI = -1, bestRem = Infinity;
     for (let i = 0; i < bins.length; i++) {
-      const rem = capacity - bins[i].reduce((x, y) => x + y, 0) - s;
+      const rem = capacity - bins[i]!.reduce((x: number, y: number) => x + y, 0) - s;
       if (rem >= 0 && rem < bestRem) { bestI = i; bestRem = rem; }
     }
-    if (bestI >= 0) bins[bestI].push(s);
+    if (bestI >= 0) bins[bestI]!.push(s);
     else bins.push([s]);
   }
   return bins;
 }
-function mergeablePair(bins, capacity) {
+function mergeablePair(bins: number[][], capacity: number) {
   for (let i = 0; i < bins.length; i++) {
     for (let j = i + 1; j < bins.length; j++) {
-      if (bins[i].reduce((x, y) => x + y, 0) + bins[j].reduce((x, y) => x + y, 0) <= capacity) return true;
+      if (bins[i]!.reduce((x: number, y: number) => x + y, 0) + bins[j]!.reduce((x: number, y: number) => x + y, 0) <= capacity) return true;
     }
   }
   return false;
@@ -72,7 +72,7 @@ function mergeablePair(bins, capacity) {
  * headroom emerges naturally: some instances only need a merge pass, others
  * need a genuine ordering change.
  */
-function binPackingGapProblems(prefix, seedStart, count, nItems) {
+function binPackingGapProblems(prefix: string, seedStart: number, count: number, nItems: number) {
   const problems = [];
   let seed = seedStart;
   let tries = 0;
@@ -103,7 +103,7 @@ const binPackBase = {
   contract_version: "bin-packing/v1",
 };
 
-function writeJson(file, obj) {
+function writeJson(file: string, obj: unknown) {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(obj, null, 1));
   console.log("wrote", path.relative(ROOT, file));
@@ -227,7 +227,7 @@ export function provisionInto(rootDataDir = dataTaskpacks, rootSealedDir = seale
   writeJson(path.join(hdst, "selection-suite.json"), harnessSuite("selection", 200));
   writeJson(path.join(rootSealedDir, "harness-improvement.tool-failures", "release-suite.json"), harnessSuite("release", 300));
 
-  function harnessSuite(layer, seedBase) {
+  function harnessSuite(layer: string, seedBase: number) {
     const rng = mulberry32(seedBase);
     const scenarios = [];
     for (let i = 0; i < 20; i++) {

@@ -24,6 +24,19 @@ export interface Config {
   costPer1kCompletionUsd: number;
   /** python interpreter with optimizer backends installed (gepa) */
   optimizerPython: string;
+  /**
+   * Shared worker-plane secret. When set, every /v1/worker/* and /v1/attempts/*
+   * request (plus artifact upload) must carry header x-worker-token — the
+   * control service binds 0.0.0.0, so without this ANY LAN peer can drive
+   * model spend through the gateway. Empty = dev mode (open, warned at boot).
+   */
+  workerToken: string;
+  /** global rolling-day model-spend cap in USD; 0 disables (ops fuse) */
+  dailyBudgetUsd: number;
+  /** set Secure on the session cookie (for https deployments) */
+  cookieSecure: boolean;
+  /** CORS origins allowed to attach credentials; same-origin needs none */
+  corsAllowedOrigins: string[];
 }
 
 function loadEnvFile(): Record<string, string> {
@@ -83,6 +96,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     costPer1kPromptUsd: Number(env("COST_PER_1K_PROMPT_USD", "0.00027")),
     costPer1kCompletionUsd: Number(env("COST_PER_1K_COMPLETION_USD", "0.0011")),
     optimizerPython: env("OPTIMIZER_PYTHON", path.join(root, ".venv-gepa", "Scripts", "python.exe")),
+    workerToken: env("WORKER_TOKEN", ""),
+    dailyBudgetUsd: Number(env("DAILY_BUDGET_USD", "0")),
+    cookieSecure: env("COOKIE_SECURE", "0") === "1",
+    corsAllowedOrigins: env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+      .split(",").map((s) => s.trim()).filter(Boolean),
     ...overrides,
   };
 }

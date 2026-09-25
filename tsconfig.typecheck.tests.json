@@ -1,0 +1,13 @@
+{
+  // type check for the test suite + operational scripts. Application source
+  // keeps full strictness (tsconfig.typecheck.json); test code indexes DB
+  // rows heuristically (rows[0] + runtime assertions), so
+  // noUncheckedIndexedAccess is relaxed HERE ONLY.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "types": ["node"], "noUncheckedIndexedAccess": false },
+  "include": [
+    "tests/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

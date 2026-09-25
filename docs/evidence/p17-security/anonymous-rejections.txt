@@ -1,0 +1,4 @@
+== anonymous worker-plane / metrics after P17 ==
+claim: {"error":"worker token required"} [401]
+metrics: HTTP 401
+events: HTTP 401

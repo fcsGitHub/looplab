@@ -40,7 +40,7 @@ function makeTool(log: string[]): AgentTool<any> {
   };
 }
 
-function makeAgent(opts: { tools?: AgentTool<any>[]; script?: any[][]; beforeToolCall?: Agent["beforeToolCall"] }) {
+function makeAgent(opts: { tools?: AgentTool<any>[]; script?: any[]; beforeToolCall?: Agent["beforeToolCall"] }) {
   // the faux provider consumes one ASSISTANT MESSAGE per provider request —
   // each script entry is one turn's content pieces (text and/or tool calls).
   // The provider instance carries its own api id + catalog; the Model
@@ -55,7 +55,7 @@ function makeAgent(opts: { tools?: AgentTool<any>[]; script?: any[][]; beforeToo
     provider: "faux",
     baseUrl: "",
     reasoning: false,
-    input: ["text"],
+    input: ["text" as const],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000,
     maxTokens: 8192,
@@ -167,11 +167,11 @@ describe("pi-agent-core contract (faux provider, deterministic)", () => {
       script: [fauxText("first response")],
     });
     await agent.prompt("first prompt");
-    const serialized = JSON.stringify(agent.state.messages);
+    const serialized: string = JSON.stringify(agent.state.messages);
     expect(serialized.length).toBeGreaterThan(2);
 
     const restored = makeAgent({ tools: [makeTool(log)], script: [fauxText("second response")] });
-    restored.state.messages = JSON.parse(serialized);
+    restored.state.messages = JSON.parse(serialized) as any[];
     expect(restored.state.messages.length).toBe(agent.state.messages.length);
     // and the restored agent continues from the restored context
     await restored.prompt("second prompt");

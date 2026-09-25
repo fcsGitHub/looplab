@@ -1,0 +1,13 @@
+{
+  // solution file: `tsc -b tsconfig.build.json` type-checks AND emits dist/
+  // for every workspace package. The per-package build configs are separate
+  // files so the dev configs (tsconfig.json, noEmit) stay untouched.
+  "files": [],
+  "references": [
+    { "path": "packages/contracts/tsconfig.build.json" },
+    { "path": "packages/llm/tsconfig.build.json" },
+    { "path": "packages/policy/tsconfig.build.json" },
+    { "path": "apps/control/tsconfig.build.json" },
+    { "path": "workers/agent-worker/tsconfig.build.json" }
+  ]
+}

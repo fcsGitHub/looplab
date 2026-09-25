@@ -2,13 +2,14 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { EventStore } from "../eventstore.js";
 import { AuthService, SESSION_COOKIE } from "../auth.js";
 import { BudgetExceededError } from "../budget.js";
 import { FencingError } from "../attempts.js";
 import { OptimizerAuthError, OptimizerBudgetExceededError } from "../optimizer.js";
 import { ReleaseConflictError, ReleaseBlockedError } from "../releases.js";
+import { RateLimiter } from "../ratelimit.js";
 import type { ControlServices } from "./services.js";
 
 export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
@@ -22,8 +23,60 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return true;
   };
 
+  // ---- worker-plane transport auth (P17) ------------------------------------
+  // The control service binds 0.0.0.0; fencing tokens alone only separate
+  // workers from each other, they do not stop a LAN peer from IMPERSONATING
+  // one (claim → drive model spend / fake commits). When WORKER_TOKEN is
+  // configured, every worker-plane request must carry it. Empty config keeps
+  // the legacy open behavior for local dev (loudly warned at boot).
+  const workerTokenHash = svc.config.workerToken
+    ? createHash("sha256").update(svc.config.workerToken).digest()
+    : null;
+  const requireWorkerToken = async (req: any, reply: FastifyReply) => {
+    if (!workerTokenHash) return true;
+    const provided = String(req.headers["x-worker-token"] ?? "");
+    const providedHash = createHash("sha256").update(provided).digest();
+    if (providedHash.length === workerTokenHash.length && timingSafeEqual(providedHash, workerTokenHash)) {
+      return true;
+    }
+    await reply.code(401).send({ error: "worker token required" });
+    return false;
+  };
+
+  // credential-stuffing brake: per-IP+username sliding window, lockout after
+  // repeated failures (P17; brute force on scrypt was previously unthrottled)
+  const authLimiter = new RateLimiter(10 * 60_000, 8, 15 * 60_000);
+
+  // ---- goal/attempt isolation (P17) ------------------------------------------
+  // Reads used to be scoped only by knowledge of the id. Goals carry owner_id;
+  // members now only see their own goals (404 — existence is not revealed),
+  // admins see everything. Returns null after replying when access is denied.
+  const goalScope = async (req: any, reply: FastifyReply, goalId: string): Promise<{ id: string } | null> => {
+    const row = (await svc.db.query("SELECT id, owner_id FROM goals WHERE id=$1", [goalId])).rows[0] as { id: string; owner_id: string } | undefined;
+    if (!row || (req.user!.role !== "admin" && row.owner_id !== req.user!.id)) {
+      reply.code(404).send({ error: "goal not found" });
+      return null;
+    }
+    return row;
+  };
+  const attemptScope = async (req: any, reply: FastifyReply, attemptId: string): Promise<{ id: string; goal_id: string } | null> => {
+    const row = (await svc.db.query(
+      `SELECT a.id, a.goal_id, g.owner_id FROM attempts a JOIN goals g ON g.id=a.goal_id WHERE a.id=$1`,
+      [attemptId],
+    )).rows[0] as { id: string; goal_id: string; owner_id: string } | undefined;
+    if (!row || (req.user!.role !== "admin" && row.owner_id !== req.user!.id)) {
+      reply.code(404).send({ error: "attempt not found" });
+      return null;
+    }
+    return row;
+  };
+
   // ---- auth ----------------------------------------------------------------
   app.post("/v1/auth/register", async (req, reply) => {
+    const rlKey = `reg:${req.ip}`;
+    if (!authLimiter.check(rlKey).allowed) {
+      return reply.code(429).send({ error: "too many attempts, try later" });
+    }
     const { username, password } = req.body as any;
     if (!username || !password || String(password).length < 4) {
       return reply.code(400).send({ error: "username and password(>=4 chars) required" });
@@ -33,9 +86,11 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
       const session = await svc.auth.login(String(username), String(password));
       if (session) svc.auth.setCookie(reply, session.token);
       await svc.goals.ensureDefaultProjects(user.id);
+      authLimiter.reset(rlKey);
       return { user };
     } catch (err: any) {
       if (String(err?.message ?? "").includes("duplicate key")) {
+        authLimiter.fail(rlKey);
         return reply.code(409).send({ error: "username taken" });
       }
       throw err;
@@ -44,8 +99,16 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/auth/login", async (req, reply) => {
     const { username, password } = req.body as any;
+    const rlKey = `login:${req.ip}:${String(username ?? "").slice(0, 64)}`;
+    if (!authLimiter.check(rlKey).allowed) {
+      return reply.code(429).send({ error: "too many failed attempts, try later" });
+    }
     const session = await svc.auth.login(String(username ?? ""), String(password ?? ""));
-    if (!session) return reply.code(401).send({ error: "invalid credentials" });
+    if (!session) {
+      authLimiter.fail(rlKey);
+      return reply.code(401).send({ error: "invalid credentials" });
+    }
+    authLimiter.reset(rlKey);
     svc.auth.setCookie(reply, session.token);
     await svc.goals.ensureDefaultProjects(session.userId);
     const u = await svc.db.query("SELECT id, username, role FROM users WHERE id=$1", [session.userId]);
@@ -103,9 +166,16 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/sessions/:id/messages", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // ownership check: the session id alone used to be enough to read another
+    // user's conversation (IDOR, P17)
+    const sess = (await svc.db.query(
+      "SELECT id FROM chat_sessions WHERE id=$1 AND owner_id=$2",
+      [(req.params as any).id, req.user!.id],
+    )).rows[0];
+    if (!sess) return reply.code(404).send({ error: "session not found" });
     const rows = await svc.db.query(
       "SELECT * FROM messages WHERE session_id=$1 ORDER BY seq ASC LIMIT 500",
-      [(req.params as any).id],
+      [sess.id],
     );
     return { messages: rows.rows };
   });
@@ -146,8 +216,35 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   });
 
   // ---- goals -----------------------------------------------------------------
+  app.get("/v1/goals", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    // goal list with ownership scoping (admin sees all) — supports overview
+    // dashboards and programmatic consumers
+    const q = req.query as any;
+    const state = typeof q.state === "string" && q.state ? q.state : null;
+    const search = typeof q.q === "string" && q.q.trim() ? `%${q.q.trim()}%` : null;
+    const limit = Math.min(Math.max(Number(q.limit ?? 50) || 50, 1), 200);
+    const ownerFilter = req.user!.role === "admin" ? "TRUE" : "g.owner_id=$2";
+    const rows = await svc.db.query(
+      `SELECT g.id, g.title, g.state, g.priority, g.owner_id, g.budget_cap_usd,
+              g.created_at, g.updated_at, g.current_version,
+              (SELECT count(*)::int FROM tasks t WHERE t.goal_id=g.id) AS task_count,
+              (SELECT a.status FROM attempts a WHERE a.goal_id=g.id AND a.status='COMMITTED'
+                 ORDER BY a.created_at DESC LIMIT 1) AS last_attempt_status
+         FROM goals g
+        WHERE (${ownerFilter})
+          AND ($3::text IS NULL OR g.state=$3)
+          AND ($4::text IS NULL OR g.title ILIKE $4)
+        ORDER BY g.updated_at DESC
+        LIMIT $1`,
+      [limit, req.user!.id, state, search],
+    );
+    return { goals: rows.rows };
+  });
+
   app.get("/v1/goals/:id", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const card = await svc.goals.workCard((req.params as any).id);
     if (!card) return reply.code(404).send({ error: "goal not found" });
     const att = (await svc.db.query(
@@ -164,6 +261,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/commands", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { kind, payload, command_id, expected_version } = req.body as any;
     if (!kind) return reply.code(400).send({ error: "kind required" });
     const receipt = await svc.goals.applyCommand({
@@ -179,6 +277,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/goals/:id/tasks", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const rows = await svc.db.query(
       `SELECT t.*, gv.version AS graph_version FROM tasks t
          JOIN graph_versions gv ON gv.id=t.graph_version_id
@@ -189,6 +288,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/goals/:id/attempts", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const rows = await svc.db.query(
       `SELECT a.*, t.node_key, t.title AS task_title, t.role FROM attempts a
          JOIN tasks t ON t.id=a.task_id WHERE a.goal_id=$1 ORDER BY a.created_at DESC LIMIT 100`,
@@ -199,6 +299,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/attempts/:id/events", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await attemptScope(req, reply, (req.params as any).id))) return;
     const rows = await svc.db.query(
       "SELECT * FROM events WHERE aggregate_id=$1 ORDER BY seq ASC LIMIT 500", [(req.params as any).id],
     );
@@ -208,6 +309,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- evolution views ---------------------------------------------------------
   app.get("/v1/goals/:id/candidates", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const rows = await svc.db.query(
       `SELECT c.*, 
         (SELECT json_agg(json_build_object('status',h.status,'reason',h.reason,'at',h.at) ORDER BY h.at)
@@ -220,16 +322,19 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/goals/:id/problems", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     return { problems: (await svc.db.query("SELECT * FROM problems WHERE goal_id=$1 ORDER BY created_at DESC", [(req.params as any).id])).rows };
   });
 
   app.get("/v1/goals/:id/proposals", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     return { proposals: (await svc.db.query("SELECT * FROM change_proposals WHERE goal_id=$1 ORDER BY created_at DESC", [(req.params as any).id])).rows };
   });
 
   app.get("/v1/goals/:id/releases", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     return { releases: (await svc.db.query("SELECT * FROM releases WHERE goal_id=$1 ORDER BY created_at DESC", [(req.params as any).id])).rows };
   });
 
@@ -241,6 +346,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- evidence & research -------------------------------------------------------
   app.get("/v1/goals/:id/evidence", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const goalId = (req.params as any).id;
     const [artifacts, claims, hypotheses, skills, memories] = await Promise.all([
       svc.db.query("SELECT digest, name, media_type, size_bytes, producer_role, scope, created_at FROM artifacts WHERE goal_id=$1 ORDER BY created_at DESC LIMIT 200", [goalId]),
@@ -259,6 +365,9 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (!(await requireAuth(req, reply))) return;
     const row = (await svc.db.query("SELECT * FROM artifacts WHERE digest=$1", [(req.params as any).digest])).rows[0];
     if (!row) return reply.code(404).send({ error: "artifact not found" });
+    // goal-scoped artifacts follow goal ownership; global-scope rows (shared
+    // skill/library data) remain readable by any authenticated user
+    if (row.goal_id && !(await goalScope(req, reply, row.goal_id))) return;
     const buf = await svc.objects.get(row.digest);
     if (!buf) return reply.code(404).send({ error: "object missing" });
     reply.header("content-type", row.media_type);
@@ -269,6 +378,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- research flow (hypothesis cards, frozen protocols, analysis) ---------
   app.post("/v1/goals/:id/hypotheses", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const b = req.body as any;
     const id = await svc.research.createHypothesis({
       goalId: (req.params as any).id, statement: String(b.statement ?? ""),
@@ -281,6 +391,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/goals/:id/hypotheses", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     return { hypotheses: (await svc.db.query("SELECT * FROM hypotheses WHERE goal_id=$1 ORDER BY created_at DESC", [(req.params as any).id])).rows };
   });
 
@@ -352,6 +463,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/claims", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const b = req.body as any;
     const id = `clm_${randomBytes(6).toString("hex")}`;
     await svc.db.query(
@@ -366,12 +478,14 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- evolution operations (HTTP surface for the evolution loop) ----------
   app.post("/v1/goals/:id/evolution/collect-problems", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const ids = await svc.evolution.collectProblems((req.params as any).id);
     return { problem_ids: ids };
   });
 
   app.post("/v1/goals/:id/evolution/propose", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { problem_id, taskpack_id, allowed_path, baseline_path } = req.body as any;
     const prop = await svc.evolution.proposeChange({
       goalId: (req.params as any).id, problemId: String(problem_id),
@@ -385,6 +499,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evolution/build", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { proposal_id, taskpack_id, allowed_path } = req.body as any;
     const candId = await svc.evolution.buildCandidate({
       goalId: (req.params as any).id, proposalId: String(proposal_id),
@@ -397,6 +512,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evolution/evaluate", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { candidate_id, taskpack_id, contract_version } = req.body as any;
     const res = await svc.evolution.evaluateCandidate({
       goalId: (req.params as any).id, candidateId: String(candidate_id),
@@ -408,6 +524,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evolution/promote", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { candidate_id, scope, kind } = req.body as any;
     const res = await svc.evolution.promote({
       goalId: (req.params as any).id, candidateId: String(candidate_id),
@@ -420,6 +537,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   app.post("/v1/goals/:id/releases/:releaseId/rollback", async (req, reply) => {
     // operator-initiated rollback of a canary/full release pointer
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { scope, reason } = req.body as any;
     try {
       const res = await svc.releases.rollback({
@@ -436,6 +554,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evolution/canary-check", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const { scope, taskpack_id } = req.body as any;
     const res = await svc.evolution.checkCanaryRegression(
       String(scope ?? "algorithm:bin-packing"),
@@ -450,6 +569,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // model key and can only reach the metered LLM proxy + complete.
   app.post("/v1/goals/:id/optimizer/runs", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const b = req.body as any;
     try {
       const res = await svc.optimizer.createRun({
@@ -471,6 +591,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/goals/:id/optimizer/runs", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const runs = await svc.optimizer.listRuns((req.params as any).id);
     // tokens are hash-stored; nothing secret is ever returned
     return { runs: runs.map(({ manifest, ...rest }) => ({ ...rest, reflection: manifest?.reflection })) };
@@ -478,6 +599,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/optimizer/run-round", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     const b = req.body as any;
     try {
       const res = await svc.optimizer.runBackendRound({
@@ -585,8 +707,8 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return { ok: true };
   });
 
-  // ---- worker API (no cookie; worker identity = registration token) -------------
-  app.post("/v1/worker/claim", async (req, reply) => {
+  // ---- worker API (worker identity = registration token, P17) --------------------
+  app.post("/v1/worker/claim", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id } = req.body as any;
     if (!worker_id) return reply.code(400).send({ error: "worker_id required" });
     const job = await svc.scheduler.claim(String(worker_id));
@@ -594,13 +716,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return job;
   });
 
-  app.post("/v1/attempts/:id/heartbeat", async (req, reply) => {
+  app.post("/v1/attempts/:id/heartbeat", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch } = req.body as any;
     const res = await svc.scheduler.heartbeat((req.params as any).id, String(worker_id), Number(lease_epoch));
     return res;
   });
 
-  app.post("/v1/attempts/:id/start", async (req, reply) => {
+  app.post("/v1/attempts/:id/start", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch } = req.body as any;
     try {
       await svc.attempts.reportStarted((req.params as any).id, String(worker_id), Number(lease_epoch));
@@ -610,7 +732,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
-  app.post("/v1/attempts/:id/tools/authorize", async (req, reply) => {
+  app.post("/v1/attempts/:id/tools/authorize", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch, tool, args } = req.body as any;
     try {
       const decision = await svc.attempts.authorizeTool({
@@ -623,7 +745,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
-  app.post("/v1/attempts/:id/tools/report", async (req, reply) => {
+  app.post("/v1/attempts/:id/tools/report", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch, tool, ok, output_digest, output_bytes, duration_ms } = req.body as any;
     try {
       await svc.attempts.reportToolResult({
@@ -637,13 +759,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
-  app.post("/v1/attempts/:id/steers/:steerId/delivered", async (req, reply) => {
+  app.post("/v1/attempts/:id/steers/:steerId/delivered", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch } = req.body as any;
     const res = await svc.scheduler.confirmSteerDelivered((req.params as any).id, (req.params as any).steerId, String(worker_id), Number(lease_epoch));
     return reply.code(res.ok ? 200 : 409).send(res);
   });
 
-  app.post("/v1/attempts/:id/checkpoint", async (req, reply) => {
+  app.post("/v1/attempts/:id/checkpoint", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch, step_index, summary, state, artifact_refs, progress_kind } = req.body as any;
     try {
       const res = await svc.attempts.checkpoint({
@@ -657,7 +779,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
   });
 
-  app.get("/v1/attempts/:id/propagated/:digest", async (req, reply) => {
+  app.get("/v1/attempts/:id/propagated/:digest", { preHandler: requireWorkerToken }, async (req, reply) => {
     // worker-fenced materialization download: the digest must be in THIS
     // attempt's propagated list (claim-time resolved), so a worker can only
     // fetch the predecessor inputs it was granted
@@ -681,7 +803,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return buf;
   });
 
-  app.post("/v1/artifacts", async (req, reply) => {
+  app.post("/v1/artifacts", { preHandler: requireWorkerToken }, async (req, reply) => {
     const body = req.body as Buffer;
     const headers = req.headers as any;
     if (!body?.length) return reply.code(400).send({ error: "empty body" });
@@ -696,7 +818,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     return res;
   });
 
-  app.post("/v1/attempts/:id/commit", async (req, reply) => {
+  app.post("/v1/attempts/:id/commit", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id } = req.body as any;
     try {
       const res = await svc.attempts.commit({ workerId: String(worker_id), payload: req.body });
@@ -712,7 +834,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   });
 
   // ---- LLM proxy for workers (budget-gated; key stays server-side) --------------
-  app.post("/v1/attempts/:id/llm", async (req, reply) => {
+  app.post("/v1/attempts/:id/llm", { preHandler: requireWorkerToken }, async (req, reply) => {
     const { worker_id, lease_epoch, messages, tools, max_tokens, temperature, idempotency_key } = req.body as any;
     try {
       // fencing first (cheap read; the gateway reserves budget itself)
@@ -748,7 +870,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
       BigInt(String((await svc.db.query("SELECT COALESCE(MAX(seq),0) AS s FROM events")).rows[0]?.s ?? "0"));
     let after: bigint;
     if (q.after) {
-      after = BigInt(q.after);
+      try { after = BigInt(String(q.after)); } catch { after = await maxSeq(); }
     } else if (req.headers["last-event-id"]) {
       try { after = BigInt(String(req.headers["last-event-id"])); } catch { after = await maxSeq(); }
     } else {
@@ -764,7 +886,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     reply.raw.write(`retry: 2000\n\n`);
     let cursor = after;
     let closed = false;
-    req.raw.on("close", () => { closed = true; });
+    // release the poll timer on disconnect — a leaked 1s interval per dead
+    // connection used to accumulate across reconnects (P17 fix)
+    let timer: NodeJS.Timeout | null = null;
+    req.raw.on("close", () => {
+      closed = true;
+      if (timer) { clearInterval(timer); timer = null; }
+    });
     const poll = async () => {
       try {
         const events = await EventStore.after(svc.db, cursor, goalId ?? undefined, 200);
@@ -785,7 +913,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         if (!closed) reply.raw.write(`event: stream_error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
       }
     };
-    const timer = setInterval(() => { if (!closed) poll(); }, 1000);
+    timer = setInterval(() => { if (!closed) poll(); }, 1000);
     timer.unref();
     // initial catch-up
     await poll();
@@ -794,31 +922,63 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- settings (never returns secrets) ----------------------------------------------
   app.get("/v1/settings/model", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // fingerprint the key instead of exposing its real prefix/suffix
+    const fp = createHash("sha256").update(svc.config.deepseek.apiKey).digest("hex").slice(0, 12);
     return {
       provider: "deepseek",
       chat_model: svc.config.deepseek.chatModel,
       reasoner_model: svc.config.deepseek.reasonerModel,
       base_url_configured: true,
       key_configured: true, // never the key itself
-      key_fingerprint: svc.config.deepseek.apiKey.slice(0, 6) + "…" + svc.config.deepseek.apiKey.slice(-4),
+      key_fingerprint: `sha256:${fp}`,
+    };
+  });
+
+  // ---- workers registry (P18: live fleet visibility) ----------------------------------
+  app.get("/v1/workers", async (req, reply) => {
+    if (!(await requireAuth(req, reply))) return;
+    const rows = (await svc.db.query(
+      `SELECT w.*, a.status AS last_attempt_status, t.title AS last_task_title
+         FROM workers w
+         LEFT JOIN attempts a ON a.id = w.last_attempt_id
+         LEFT JOIN tasks t ON t.id = a.task_id
+        ORDER BY w.last_seen_at DESC`,
+    )).rows;
+    const aliveWindowMs = svc.config.leaseTtlMs * 2;
+    const now = Date.now();
+    return {
+      workers: rows.map((w: any) => ({
+        ...w,
+        alive: Boolean(w.last_seen_at) && now - new Date(w.last_seen_at).getTime() < aliveWindowMs,
+        claims_total: Number(w.claims_total ?? 0),
+        polls_total: Number(w.polls_total ?? 0),
+      })),
     };
   });
 
   app.get("/v1/metrics", async (req, reply) => {
+    // was unauthenticated: spend, goal counts and orchestrator internals are
+    // business data — now session-gated like every other read (P17)
+    if (!(await requireAuth(req, reply))) return;
     const q = async (sql: string) => (await svc.db.query(sql)).rows[0];
-    const [goals, attempts, events, budget, modelCalls] = await Promise.all([
+    const [goals, attempts, events, budget, modelCalls, today] = await Promise.all([
       svc.db.query("SELECT state, count(*)::int AS n FROM goals GROUP BY state"),
       svc.db.query("SELECT status, count(*)::int AS n FROM attempts GROUP BY status"),
       q("SELECT count(*)::int AS n, COALESCE(MAX(seq),0)::bigint AS head FROM events"),
       svc.db.query("SELECT status, sum(settled_usd) AS settled, sum(unknown_usd) AS unknown, sum(reserved_usd) AS reserved FROM budget_reservations GROUP BY status"),
       q("SELECT COALESCE(sum(model_calls),0)::int AS calls, COALESCE(sum(settled_usd),0)::float AS usd FROM attempts"),
+      q(`SELECT COALESCE(sum(settled_usd + reserved_usd + unknown_usd),0)::float AS usd
+           FROM budget_reservations WHERE updated_at > now() - interval '24 hours'`),
     ]);
     return {
       uptime_s: Math.floor(process.uptime()),
       goals: goals.rows, attempts: attempts.rows,
       events: { count: Number(events?.n ?? 0), head: String(events?.head ?? 0) },
       budget: budget.rows,
-      model: { calls: Number(modelCalls?.calls ?? 0), cost_usd: Number(modelCalls?.usd ?? 0) },
+      model: {
+        calls: Number(modelCalls?.calls ?? 0), cost_usd: Number(modelCalls?.usd ?? 0),
+        last_24h_usd: Number(today?.usd ?? 0), daily_cap_usd: svc.config.dailyBudgetUsd || null,
+      },
       orchestrator: {
         last_reconcile_at: svc.orchestrator.lastReconcileAt?.toISOString() ?? null,
         reconcile_totals: svc.orchestrator.reconcileCounts,

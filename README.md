@@ -29,8 +29,11 @@ Worker (workers/agent-worker)   ── 有界 agent 循环 + 工具网关（Pyth
 docker run -d --name looplab-pg -e POSTGRES_USER=looplab -e POSTGRES_PASSWORD=localdev \
   -e POSTGRES_DB=looplab -p 5433:5432 postgres:16-alpine
 
-# 2) 密钥（本地、已 gitignore）
-printf 'DEEPSEEK_API_KEY=sk-xxx\n' > apps/control/config/.env.local
+# 2) 密钥与 worker 令牌（本地、已 gitignore）
+#    WORKER_TOKEN 是 worker 平面的共享密钥：设置后所有 /v1/worker/* 与
+#    /v1/attempts/* 请求必须携带 x-worker-token 头（服务绑定 0.0.0.0，
+#    不设令牌等于向局域网开放模型计费通道）。worker 与控制服务必须一致。
+printf 'DEEPSEEK_API_KEY=sk-xxx\nWORKER_TOKEN=%s\n' "$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))")" > apps/control/config/.env.local
 
 # 3) 依赖与 TaskPack 套件（含 sealed 发布套件）
 npm install
@@ -39,8 +42,9 @@ npx tsx scripts/seal-suites.ts
 # 4) 启动：控制服务（:8080，同时托管前端构建产物）
 npx tsx apps/control/src/index.ts          # http://localhost:8080
 
-# 5) 启动一个 worker（可多个；调度由控制服务统一裁决）
-WORKER_ID=dev-01 npx tsx workers/agent-worker/src/index.ts
+# 5) 启动一个 worker（可多个；调度由控制服务统一裁决；令牌与控制服务一致）
+WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.local | cut -d= -f2) \
+  npx tsx workers/agent-worker/src/index.ts
 
 # 6) 浏览器打开 http://localhost:8080，注册首个账号（自动成为管理员），发送目标即可
 ```
@@ -59,10 +63,25 @@ WORKER_ID=dev-01 npx tsx workers/agent-worker/src/index.ts
 大实例族 seed archive 与小族隔离）。图 revise 按 §六.3 只重跑受影响节点及后继、
 保留有效前缀（A20）。
 
+## 安全模型（P17 起强制）
+
+- **worker 平面令牌**：控制服务绑定 `0.0.0.0`，fencing token 只隔离 worker
+  彼此、不隔离“局域网里的任何人”。设置 `WORKER_TOKEN` 后（见快速开始），
+  `/v1/worker/*`、`/v1/attempts/*`、`POST /v1/artifacts` 全部要求
+  `x-worker-token`（timing-safe 比较）；未设置时启动日志会大声告警（仅限本机开发）。
+- **读隔离**：goal/attempt/session 全部按属主隔离（member 只见自己的，
+  404 不暴露存在性；admin 全量可见）；`GET /v1/metrics`、`GET /v1/workers`
+  需要会话。
+- **登录限流**：`/v1/auth/*` 按 IP+用户名滑动窗口限流，8 次失败锁定 15 分钟。
+- **日预算熔断**：`DAILY_BUDGET_USD`（默认 0=关闭）设置后，LLM 网关在 24h
+  滚动窗口花费（reserved+settled+unknown）达到上限时拒绝一切调用（402），
+  `/v1/metrics` 可见 `last_24h_usd`/`daily_cap_usd`。
+- **CORS**：仅白名单 origin（默认 Vite 开发端口）回显凭据头；同源请求无需 CORS。
+
 ## 测试
 
 ```bash
-npx vitest run                                  # 单元 + 契约 + 集成（A02–A16、A18–A24；A17 长跑除外）
+npx vitest run                                  # 单元 + 契约 + 集成（A02–A27；A17 长跑除外）
 DEEPSEEK_API_KEY=sk-xxx npx vitest run tests/contract/deepseek-smoke.test.ts  # 真实模型烟测
 npx playwright test                             # 真实浏览器端到端（需控制服务+worker 运行中）
 npx tsx tests/soak/soak.ts --duration 10m       # 浸泡测试（72h 用 --duration 72h）

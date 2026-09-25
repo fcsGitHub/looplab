@@ -1,0 +1,16 @@
+{
+  // full-tree type check (no emit): application packages. `npm run typecheck`
+  // must pass on a clean checkout. Tests/scripts are checked by
+  // tsconfig.typecheck.tests.json (relaxed row indexing).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "composite": false, "types": ["node"] },
+  "include": [
+    "packages/contracts/src/**/*.ts",
+    "packages/llm/src/**/*.ts",
+    "packages/policy/src/**/*.ts",
+    "apps/control/src/**/*.ts",
+    "workers/agent-worker/src/**/*.ts",
+    "tests/helpers/**/*.ts"
+  ],
+  "exclude": ["node_modules", "apps/web"]
+}

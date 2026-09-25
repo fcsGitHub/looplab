@@ -82,8 +82,10 @@ describe("A09 CAS release", () => {
   it("only one of two concurrent promotions of the same parent pointer wins", async () => {
     const user = await authedUser(env, "cas-user");
     const f = fixture(env);
-    const { projectId, sessionId } = await f.createProjectSession(user.json ? "x" : (await user.get("/v1/me")).json().user.id);
-    const { goalId } = await f.createGoalWithTasks((await user.get("/v1/me")).json().user.id, projectId, sessionId, []);
+    const me = await user.get("/v1/me");
+    const userId = me.json().user.id as string;
+    const { projectId, sessionId } = await f.createProjectSession(userId);
+    const { goalId } = await f.createGoalWithTasks(userId, projectId, sessionId, []);
 
     const c1 = await createCandidate(goalId, BFD, "BFD");
     const c2 = await createCandidate(goalId, BFD.replace("Best-Fit", "Best-Fit v2"), "BFD v2");
@@ -157,8 +159,15 @@ describe("A10 sealed-label isolation", () => {
     const sealedPath = path.join(env.dataDir, "sealed", "algorithm-search.bin-packing", "release-suite.json");
     expect(existsSync(sealedPath)).toBe(true); // sealed suite exists for the evaluator...
     const sealed = JSON.parse(readFileSync(sealedPath, "utf8"));
-    // ...but no label content leaked into the evaluation result
-    expect(JSON.stringify(result)).not.toContain(String(sealed.problems[0].items[0]));
+    // ...but no label content leaked into the evaluation result. Structural
+    // canaries only: a bare 2-digit item size used to collide with runtime_ms
+    // decimals (0.369 contains "69") and flake the test — a real leak would
+    // surface as the contiguous items array or as release-archive seeds.
+    const resultStr = JSON.stringify(result);
+    expect(resultStr).not.toContain(JSON.stringify(sealed.problems[0].items));
+    for (const p of sealed.problems.slice(0, 3) as { seed: number }[]) {
+      expect(resultStr).not.toContain(`"seed":${p.seed}`);
+    }
 
     // EvolutionService marks such candidates REJECTED -> never eligible for promotion
     await env.app.services.evolution.evaluateCandidate({

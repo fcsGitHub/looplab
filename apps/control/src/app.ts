@@ -4,6 +4,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import cookie from "@fastify/cookie";
 import { mkdirSync, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,16 +57,28 @@ export async function buildApp(configOverride: Partial<Config> = {}) {
   });
 
   app.addHook("onRequest", async (req, reply) => {
-    reply.header("access-control-allow-origin", req.headers.origin ?? "*");
-    reply.header("access-control-allow-credentials", "true");
-    reply.header("access-control-allow-headers", "content-type,authorization,x-artifact-name,x-artifact-media-type,x-attempt-id,x-producer-role,x-goal-id,x-scope");
-    reply.header("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
+    // CORS: only allowlisted origins may attach credentials. Reflecting an
+    // arbitrary Origin with allow-credentials=true used to let any website
+    // read API responses of a visiting user (P17 fix; same-origin needs no
+    // CORS at all, so the dev allowlist is purely for the Vite workflow).
+    const origin = req.headers.origin;
+    if (origin && config.corsAllowedOrigins.includes(origin)) {
+      reply.header("access-control-allow-origin", origin);
+      reply.header("access-control-allow-credentials", "true");
+      reply.header("access-control-allow-headers", "content-type,authorization,x-artifact-name,x-artifact-media-type,x-attempt-id,x-producer-role,x-goal-id,x-scope,x-worker-token");
+      reply.header("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
+      reply.header("vary", "Origin");
+    }
+    // baseline hardening headers (no CORS echo needed for same-origin)
+    reply.header("x-content-type-options", "nosniff");
+    reply.header("referrer-policy", "same-origin");
+    reply.header("x-frame-options", "DENY");
     if (req.method === "OPTIONS") {
       await reply.code(204).send();
     }
   });
 
-  const auth = new AuthService(db, config.sessionTtlMs);
+  const auth = new AuthService(db, config.sessionTtlMs, config.cookieSecure);
   const goals = new GoalService(db, config);
   const scheduler = new Scheduler(db, config);
   const attempts = new AttemptsService(db, config, goals);
@@ -87,10 +100,19 @@ export async function buildApp(configOverride: Partial<Config> = {}) {
   registerRoutes(app, services);
 
   app.setErrorHandler((err, req, reply) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[control] ${req.method} ${req.url} -> ${err instanceof Error ? err.stack?.slice(0, 500) : msg}`);
+    const e = err as unknown as Error & { statusCode?: number };
+    const msg = e instanceof Error ? e.message : String(e);
+    // full detail to the operator log; clients get a nonce they can quote back
+    // — raw driver/SQL messages used to leak internal structure (P17 fix)
+    const nonce = randomBytes(4).toString("hex");
+    console.error(`[control] ${req.method} ${req.url} [err:${nonce}] -> ${e instanceof Error ? e.stack?.slice(0, 500) : msg}`);
     if (!reply.sent) {
-      reply.code(500).send({ error: "internal", message: msg.slice(0, 300) });
+      const code = e.statusCode && e.statusCode >= 400 && e.statusCode < 500 ? e.statusCode : 500;
+      reply.code(code).send(
+        code === 500
+          ? { error: "internal", err_nonce: nonce }
+          : { error: msg.slice(0, 300) },
+      );
     }
   });
 

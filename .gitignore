@@ -17,3 +17,6 @@ sealed/
 
 # optimizer backend venv
 .venv-gepa/
+
+# typescript build info
+*.tsbuildinfo

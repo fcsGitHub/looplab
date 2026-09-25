@@ -22,7 +22,11 @@
 ## 资产与对策
 | 资产 | 威胁 | 对策（实现处） |
 |---|---|---|
-| DEEPSEEK_API_KEY | 泄漏到 UI/日志/Worker | 密钥仅存控制服务受保护配置；LLM 调用统一经控制网关；响应与日志脱敏（A02/设置页） |
+| DEEPSEEK_API_KEY | 泄漏到 UI/日志/Worker | 密钥仅存控制服务受保护配置；LLM 调用统一经控制网关；响应与日志脱敏（A02/设置页，指纹为 sha256 前缀） |
+| 模型预算（传输层） | 局域网对等端冒充 worker 驱动计费调用/伪造 commit | worker 平面共享令牌：`WORKER_TOKEN` 配置后 `/v1/worker/*`、`/v1/attempts/*`、artifact 上传一律要求 `x-worker-token`（timing-safe）；fencing token 仅隔离 worker 彼此，不替代传输鉴权（A26） |
+| 跨用户数据（多账号部署） | member 以 id 遍历读取他人 goal/attempt/会话/证据 | 全部读路由按 goals.owner_id 隔离（member 视角 404，admin 全量）；`/v1/metrics`、`/v1/workers` 需要会话（A26） |
+| 凭据暴力破解 | 登录/注册端点无限尝试 | IP+用户名滑动窗口限流，8 败锁定 15 分钟，成功登录清零（A26） |
+| 全局花费失控 | 单目标预算上限不看跨目标聚合 | `DAILY_BUDGET_USD>0` 时 LLM 网关在预留前对 24h 滚动聚合花费熔断（402）（A27） |
 | 封存评测标签 (sealed://) | 候选/提案器读取或篡改 | sealed 目录仅在评测进程解析；候选沙箱 cwd 不含该路径；A10 负测试 |
 | 评分器与发布规则 | 候选自我批准 | ReleaseService 独立身份；程序评测硬门（A11）；CAS 发布（A09） |
 | 审计事件流 | 事后篡改 | 追加式 events 表，(aggregate,sequence) 唯一；worker 时钟不参与排序 |
@@ -35,3 +39,5 @@
 - Worker 与控制服务同机时，进程级隔离依赖 OS 用户/目录权限，非虚拟机级沙箱；容器化 Worker 列为增强项。
 - `sealed://` 隔离在单机上靠「不同进程 + 路径不进入候选沙箱」实现；已用负测试验证候选读不到，但不防内核级攻击者。
 - SSE 与 REST 无端到端 TLS 终止（本地明文），生产部署需反代。
+- `WORKER_TOKEN` 是共享对称密钥：不区分 worker 身份（逐 worker 凭证/mTLS 为增强项）；令牌经环境变量分发，不做轮换。
+- 登录限流为控制进程内存态：多实例部署需外置（Redis/网关层）。

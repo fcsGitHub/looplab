@@ -1,5 +1,70 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-25 24:00（P17/P18 安全加固 + 可观测性轮）· 分支：`main`
+
+## 本轮新增：安全审计修复（P17）+ fleet 可观测性（P18）（2026-09-25）
+
+接管项目后的第一轮：全量安全审计 → 修复 9 处真实漏洞/缺陷 → 2 项新功能 →
+真实端到端复验。全程无 mock：所有修复在真实控制服务（:8080，WORKER_TOKEN
+启用）+ 真实 worker + 真实模型目标上复验。
+
+### 修复的漏洞（按严重度）
+
+| # | 漏洞 | 修复 | 验证 |
+|---|---|---|---|
+| V1 | **worker 平面零鉴权**：控制服务绑 0.0.0.0，`/v1/worker/*`、`/v1/attempts/*`（含 `/llm` 计费代理与 artifact 上传）无任何传输层鉴权——局域网任意主机可冒充 worker 驱动真实模型花费、伪造 commit；已认证 member 也可读到 attempts 列表里的 worker_id+lease_epoch 后冒充 | `WORKER_TOKEN` 共享密钥：所有 worker 平面路由要求 `x-worker-token`（sha256+timingSafeEqual）；未配置时启动 loud warning；worker 侧 `ControlClient` 自动携带 | A26 测试 3 项 + 生产实例：匿名/错令牌 claim=401，dev-01 带 token 正常认领执行 |
+| V2 | **IDOR 读隔离缺失**：goal/attempt/session 全部仅凭 id 可读，任何 member 可读他人目标、任务、事件、证据、会话消息 | `goalScope`/`attemptScope` 助手应用到全部 20+ 读/写路由；member 视角 404（不暴露存在性），admin 全量；会话消息按 owner 过滤；goal 域 artifact 按 goal 归属 | A26 测试（8 类读 × owner/attacker/admin 三视角） |
+| V3 | **`GET /v1/metrics` 无鉴权**：花费、目标统计、编排器内部错误对外暴露 | requireAuth | A26 + 生产实例匿名 401 |
+| V4 | **登录无限暴力破解**：scrypt 校验无限流 | `RateLimiter`（滑动窗口，IP+用户名，8 败锁 15min，成功清零），register 同闸 | A26（第 9 次起 429，锁定中正确密码也 429）+ 单测 4 项 |
+| V5 | **CORS 任意 Origin 反射 + credentials** | 白名单回显（默认仅 Vite dev 端口），同源无需 CORS | 代码审查 + A26 间接 |
+| V6 | **500 响应泄露内部错误文本**（SQL/驱动消息） | 500 只回 `err_nonce`，全文进操作日志；4xx 保留受控消息 | 类型级修复，无路由依赖旧行为 |
+| V7 | **SSE 连接泄漏**：每个断开的 EventSource 留下一个永续 1s interval；`?after=非数字` 直接 500 | close 时 clearInterval；非法游标回退 head | A26 SSE 测试 |
+| V8 | **API key 指纹泄露**：`/v1/settings/model` 返回 key 前 6+后 4 字符 | 改 sha256 指纹 | — |
+| V9 | **首用户 admin TOCTOU**：并发注册可双 admin | `pg_advisory_xact_lock` 序列化 count-then-insert | — |
+
+### 新功能（P18）
+
+- **worker 注册表**：`workers` 表（006/007 迁移）；claim 轮询 upsert（`last_seen_at`
+  决定 alive，2×租约窗口），实际授予权才计 `claims_total`（007 修正语义，
+  `polls_total` 单独计量轮询）；心跳刷新 `last_attempt_id/last_task_title`。
+  `GET /v1/workers` + 系统弹窗「Worker 集群」面板。
+- **全局日预算熔断**：`DAILY_BUDGET_USD`（默认 0=关）；LLM 网关在预留前检查
+  24h 滚动 reserved+settled+unknown，达上限即 402（先于任何网络调用）；
+  `/v1/metrics` 新增 `model.last_24h_usd` / `model.daily_cap_usd`。
+- **`GET /v1/goals` 列表端点**：属主过滤 + state/q 过滤 + 任务计数（admin 全量）。
+
+### 运维修复
+
+- **根 `tsconfig.build.json` 缺失**（既有问题，HANDOFF 上轮已登记未触碰）：
+  本轮落地 `tsc -b` 解决方案构建（5 个 composite 包配置 + 引用图），
+  `npm run build`（真实 emit dist/）与 `npm run typecheck`（app 严格 +
+  tests/scripts 宽松双配置）**首次可用且全绿**。
+- **密钥落盘**：`DEEPSEEK_API_KEY` 此前只存在于启动进程的环境变量中
+  （`.env.local` 从未创建——本轮重启时险些丢失）；已恢复并写入
+  `apps/control/config/.env.local`（gitignored，连同 WORKER_TOKEN）。
+- **A10 安全测试假阳性修复**：「sealed 标签泄漏」断言用裸 2 位数子串匹配
+  （`items[0]`），与 `runtime_ms:0.369` 中的 "69" 随机碰撞导致间歇性红。
+  改为结构化金丝雀（完整 items 数组 + release 档案 seed 前缀）——泄漏检测
+  本身不再依赖会碰撞的子串。
+
+### 真实端到端复验（WORKER_TOKEN 启用下）
+
+goal_c056b3c450694c7e「is_palindrome + 5 用例验证」：planner 真实规划 →
+worker（token 认证）t1→t3 SUCCEEDED → Reviewer t4 真实失败 3 次 →
+retry-loop 诊断自动派发并 SUCCEEDED → 人工 revise（采纳诊断）→
+A20 受影响子图重算（有效前缀保留）→ **COMPLETED**，$0.2968 全额计量。
+期间发现并修复 claims_total 语义缺陷（007）。
+
+### 本轮验证汇总
+
+- `npx vitest run`：**90 passed / 2 skipped / 0 failed**（基线 74 → 90）
+- `npm run typecheck`：app 严格 + tests/scripts 宽松，0 错误（首次）
+- `npm run build`：5 包 emit 成功（首次）
+- UI 冒烟（真实浏览器）：0 控制台错误
+- 生产实例：匿名 metrics/claim 401；dev-01 注册表 alive=true
+
+---
+
 更新时间：2026-09-25 19:00（UI 全面改造轮）· 分支：`impl/platform`（本地，未推送）
 
 ## 本轮新增：UI/UX 全面改造（2026-09-25）

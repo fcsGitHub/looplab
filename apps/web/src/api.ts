@@ -61,6 +61,7 @@ export class Api {
   artifactUrl(digest: string) { return `${this.base}/v1/artifacts/${digest}`; }
   settingsModel() { return this.get("/v1/settings/model"); }
   metrics() { return this.get("/v1/metrics"); }
+  workers() { return this.get("/v1/workers") as Promise<{ workers: WorkerRow[] }>; }
 
   // ---- optimizer / meta-evolution (RSI) ----
   optimizerRuns(goalId: string) { return this.get(`/v1/goals/${goalId}/optimizer/runs`) as Promise<{ runs: OptimizerRun[] }>; }
@@ -104,6 +105,12 @@ export interface OptimizerRun {
   reflection: string | null;
 }
 export interface EpochInfo { index: number; active_backend: string; frozen: boolean; status: string; }
+export interface WorkerRow {
+  id: string; first_seen_at: string; last_seen_at: string;
+  claims_total: number; polls_total: number; heartbeats_total: number;
+  last_attempt_id: string | null; last_attempt_status: string | null;
+  last_task_title: string | null; runtime: string | null; alive: boolean;
+}
 export interface EvidenceBundle {
   artifacts: { digest: string; name: string; media_type: string; size_bytes: number; producer_role: string }[];
   claims: { id: string; text: string; stance: string; scope: string; kind: string }[];

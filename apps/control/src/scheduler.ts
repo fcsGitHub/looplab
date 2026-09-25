@@ -66,6 +66,15 @@ export class Scheduler {
    */
   async claim(workerId: string): Promise<ClaimedJob | null> {
     return this.db.tx(async (client) => {
+      // registry upsert: workers are tracked for /v1/workers fleet visibility.
+      // Every poll touches last_seen_at (liveness); claims_total is bumped
+      // separately when a job is actually granted below.
+      await client.query(
+        `INSERT INTO workers (id, polls_total) VALUES ($1, 1)
+         ON CONFLICT (id) DO UPDATE SET polls_total = workers.polls_total + 1,
+           last_seen_at = now()`,
+        [workerId],
+      );
       // Candidate rows: READY tasks on ACTIVE goals with deps satisfied.
       const rows = await client.query(
         `SELECT t.*, g.state AS goal_state, g.current_version AS goal_version
@@ -98,6 +107,10 @@ export class Scheduler {
           await this.maybeWaitForResource(client, task.goal_id);
           continue;
         }
+        await client.query(
+          "UPDATE workers SET claims_total = claims_total + 1 WHERE id=$1",
+          [workerId],
+        );
         const attempt = await this.createAttempt(client, task, workerId);
         return attempt;
       }
@@ -249,6 +262,11 @@ export class Scheduler {
            lease_expires_at = now() + make_interval(secs => $2)
          WHERE id=$1`,
         [attemptId, this.config.leaseTtlMs / 1000],
+      );
+      await client.query(
+        `UPDATE workers SET last_seen_at=now(), heartbeats_total=heartbeats_total+1,
+           last_attempt_id=$1 WHERE id=$2`,
+        [attemptId, workerId],
       );
       const goal = await client.query("SELECT state FROM goals WHERE id=$1", [att.goal_id]);
       const goalState = goal.rows[0]?.state;

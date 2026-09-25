@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Attempt, type Candidate, type Message, type Project, type Session, type Task, type WorkCard } from "./api";
+import { api, type Attempt, type Candidate, type Message, type Project, type Session, type Task, type WorkCard, type WorkerRow } from "./api";
 import { useEventStream } from "./useEventStream";
 import { Workspace, Inspector } from "./Workspace";
 
@@ -382,6 +382,7 @@ export function App() {
 function SystemModal({ onClose }: { onClose: () => void }) {
   const [model, setModel] = useState<any>(null);
   const [metrics, setMetrics] = useState<any>(null);
+  const [workers, setWorkers] = useState<WorkerRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -391,6 +392,7 @@ function SystemModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.settingsModel().then(setModel).catch((e) => setErr(String(e?.message ?? e)));
     api.metrics().then(setMetrics).catch(() => {});
+    api.workers().then((r) => setWorkers(r.workers)).catch(() => setWorkers([]));
   }, []);
   const fmtUptime = (s: number) => {
     const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60);
@@ -417,7 +419,15 @@ function SystemModal({ onClose }: { onClose: () => void }) {
         {metrics ? (
           <div className="sys-grid">
             <div><span className="eyebrow">运行时长</span>{fmtUptime(Number(metrics.uptime_s) || 0)}</div>
-            <div><span className="eyebrow">模型调用</span><span className="num">{metrics.model?.calls ?? 0} 次 · ${Number(metrics.model?.cost_usd ?? 0).toFixed(4)}</span></div>
+            <div>
+              <span className="eyebrow">模型调用</span>
+              <span className="num">
+                {metrics.model?.calls ?? 0} 次 · ${Number(metrics.model?.cost_usd ?? 0).toFixed(4)}
+                {metrics.model?.daily_cap_usd
+                  ? ` · 24h $${Number(metrics.model?.last_24h_usd ?? 0).toFixed(3)}/$${Number(metrics.model.daily_cap_usd).toFixed(2)}`
+                  : ""}
+              </span>
+            </div>
             <div><span className="eyebrow">事件</span><span className="num">{metrics.events?.count ?? 0}</span></div>
             <div>
               <span className="eyebrow">目标</span>
@@ -433,6 +443,24 @@ function SystemModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ) : <div className="empty">加载中…</div>}
+        <div className="eyebrow">Worker 集群</div>
+        {workers === null ? <div className="empty">加载中…</div> : workers.length === 0 ? (
+          <div className="empty">尚无 worker 注册（启动 worker 后自动出现）</div>
+        ) : (
+          <div className="worker-grid">
+            {workers.map((w) => (
+              <div key={w.id} className="worker-row">
+                <span className={`dot ${w.alive ? "on" : ""}`} style={w.alive ? { background: "var(--ok)" } : { opacity: 0.4 }} />
+                <span className="mono">{w.id}</span>
+                <span className="muted small">
+                  {w.alive ? "在线" : "离线"} · 认领 {w.claims_total} / 轮询 {w.polls_total} · 心跳 {w.heartbeats_total}
+                  {w.last_task_title ? ` · 最近：${String(w.last_task_title).slice(0, 24)}` : ""}
+                </span>
+                <span className="mono muted small">{new Date(w.last_seen_at).toLocaleTimeString("zh-CN", { hour12: false })}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="modal-actions">
           <button onClick={onClose}>关闭 (Esc)</button>
         </div>

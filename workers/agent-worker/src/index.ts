@@ -22,9 +22,9 @@ const DATA_DIR = process.env.DATA_DIR ?? path.resolve(process.cwd(), "../../data
 const POLL_IDLE_MS = Number(process.env.WORKER_POLL_IDLE_MS ?? 3000);
 
 async function main() {
-  const client = new ControlClient(CONTROL_URL);
+  const client = new ControlClient(CONTROL_URL, process.env.WORKER_TOKEN ?? "");
   mkdirSync(DATA_DIR, { recursive: true });
-  console.log(`[worker ${WORKER_ID}] connecting to ${CONTROL_URL}`);
+  console.log(`[worker ${WORKER_ID}] connecting to ${CONTROL_URL}${process.env.WORKER_TOKEN ? " (token auth)" : ""}`);
 
   let stopped = false;
   process.on("SIGINT", () => { stopped = true; });

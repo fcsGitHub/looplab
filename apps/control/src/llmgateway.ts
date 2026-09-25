@@ -8,7 +8,7 @@
 // mid-call the reservation remains as unknown cost — exactly the A08 rule.
 import { DeepSeekClient, estimateCostUsd, LlmHttpError, type ChatMessage, type ToolDefinition, type ChatResult } from "@looplab/llm";
 import { EventStore } from "./eventstore.js";
-import { BudgetService } from "./budget.js";
+import { BudgetService, BudgetExceededError } from "./budget.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 
@@ -58,6 +58,25 @@ export class LlmGateway {
       input.reserveUsd ??
       (promptTokens / 1000) * this.config.costPer1kPromptUsd +
         (maxTokens / 1000) * this.config.costPer1kCompletionUsd;
+
+    // global 24h spend fuse (P18): per-goal caps cannot see cross-goal
+    // aggregate burn; DAILY_BUDGET_USD>0 turns the whole gateway off once
+    // the rolling day's reserved+settled+unknown reaches the cap. Checked
+    // outside the reservation tx so the refusal is not silently rolled back.
+    if (this.config.dailyBudgetUsd > 0) {
+      const day = await this.db.query(
+        `SELECT COALESCE(sum(settled_usd + reserved_usd + unknown_usd),0)::float AS usd
+           FROM budget_reservations WHERE updated_at > now() - interval '24 hours'`,
+      );
+      const spent = Number(day.rows[0]?.usd ?? 0);
+      if (spent + worstCaseUsd > this.config.dailyBudgetUsd + 1e-9) {
+        throw new BudgetExceededError({
+          required: worstCaseUsd,
+          available: Math.max(0, this.config.dailyBudgetUsd - spent),
+          cap: this.config.dailyBudgetUsd,
+        });
+      }
+    }
 
     // tx 1: reserve
     const { id: reservationId } = await this.db.tx(async (client) => {

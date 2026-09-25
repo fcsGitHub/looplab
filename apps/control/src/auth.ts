@@ -25,17 +25,22 @@ export function verifyPassword(password: string, stored: string): boolean {
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 export class AuthService {
-  constructor(private db: Db, private sessionTtlMs: number) {}
+  constructor(private db: Db, private sessionTtlMs: number, private cookieSecure = false) {}
 
   async register(username: string, password: string): Promise<{ id: string; role: string }> {
-    const count = await this.db.query("SELECT count(*)::int AS n FROM users");
-    const role = Number(count.rows[0]?.n ?? 0) === 0 ? "admin" : "member";
-    const id = `usr_${randomBytes(8).toString("hex")}`;
-    await this.db.query(
-      "INSERT INTO users (id, username, password_hash, role) VALUES ($1,$2,$3,$4)",
-      [id, username, hashPassword(password), role],
-    );
-    return { id, role };
+    // advisory lock serializes the count-then-insert so exactly one concurrent
+    // registration on an empty table wins the admin role (first-boot race)
+    return this.db.tx(async (client: any) => {
+      await client.query("SELECT pg_advisory_xact_lock(918273645)");
+      const count = await client.query("SELECT count(*)::int AS n FROM users");
+      const role = Number(count.rows[0]?.n ?? 0) === 0 ? "admin" : "member";
+      const id = `usr_${randomBytes(8).toString("hex")}`;
+      await client.query(
+        "INSERT INTO users (id, username, password_hash, role) VALUES ($1,$2,$3,$4)",
+        [id, username, hashPassword(password), role],
+      );
+      return { id, role };
+    });
   }
 
   async login(username: string, password: string): Promise<{ token: string; userId: string } | null> {
@@ -72,6 +77,7 @@ export class AuthService {
       sameSite: "lax",
       path: "/",
       maxAge: Math.floor(this.sessionTtlMs / 1000),
+      secure: this.cookieSecure,
     });
   }
 }
