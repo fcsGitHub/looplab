@@ -227,7 +227,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     const ownerFilter = req.user!.role === "admin" ? "TRUE" : "g.owner_id=$2";
     const rows = await svc.db.query(
       `SELECT g.id, g.title, g.state, g.priority, g.owner_id, g.budget_cap_usd,
-              g.created_at, g.updated_at, g.current_version,
+              g.created_at, g.updated_at, g.current_version, g.project_id, g.session_id,
               (SELECT count(*)::int FROM tasks t WHERE t.goal_id=g.id) AS task_count,
               (SELECT a.status FROM attempts a WHERE a.goal_id=g.id AND a.status='COMMITTED'
                  ORDER BY a.created_at DESC LIMIT 1) AS last_attempt_status
@@ -996,7 +996,8 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     });
     const poll = async () => {
       try {
-        const events = await EventStore.after(svc.db, cursor, goalId ?? undefined, 200);
+        const events = await EventStore.after(svc.db, cursor,
+          { goalId: goalId ?? undefined, owner: { id: req.user!.id, isAdmin: req.user!.role === "admin" } }, 200);
         for (const e of events) {
           reply.raw.write(`id: ${e.seq}\nevent: platform\ndata: ${JSON.stringify({
             schema_version: "1", event_id: e.event_id, aggregate_type: e.aggregate_type,

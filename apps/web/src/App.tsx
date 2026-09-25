@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Attempt, type Candidate, type Message, type Project, type Session, type Task, type WorkCard, type WorkerRow } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import { api, type Attempt, type Candidate, type Message, type Project, type Session, type Task, type WorkCard, type WorkerRow, type GoalListRow, type ApprovalRow } from "./api";
 import { useEventStream } from "./useEventStream";
 import { Workspace, Inspector } from "./Workspace";
 
@@ -28,6 +28,8 @@ export function App() {
   const [inspector, setInspector] = useState<{ kind: string; id: string } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showSys, setShowSys] = useState(false);
+  const [goalOverview, setGoalOverview] = useState<GoalListRow[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
   const [theme, setTheme] = useState<"dark" | "light">(() =>
     localStorage.getItem("looplab-theme") === "light" ? "light" : "dark",
   );
@@ -149,10 +151,31 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user, pauseResume, newSession]);
 
-  const pendingApprovals = useMemo(
-    () => stream.events.filter((e) => e.event_type === "approval.requested").slice(-3),
-    [stream.events],
-  );
+  // approvals + goal overview refresh whenever the stream moves or the view opens
+  const refreshSidebars = useCallback(async () => {
+    if (!user) return;
+    api.approvals().then((r) => setApprovals(r.approvals)).catch(() => {});
+    api.goalsList().then((r) => setGoalOverview(r.goals)).catch(() => {});
+  }, [user]);
+  useEffect(() => { refreshSidebars(); }, [refreshSidebars]);
+  useEffect(() => {
+    if (stream.events.length) refreshSidebars();
+  }, [stream.events.length, refreshSidebars]);
+  useEffect(() => {
+    if (!user) return;
+    const t = setInterval(() => refreshSidebars(), 20_000);
+    return () => clearInterval(t);
+  }, [user, refreshSidebars]);
+
+  const decideApproval = useCallback(async (id: string, decision: "approve" | "reject") => {
+    try {
+      await api.approvalDecision(id, decision);
+      await refreshSidebars();
+      await refreshGoal();
+    } catch (e) {
+      setLastErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }, [refreshSidebars, refreshGoal]);
 
   if (!user) {
     return (
@@ -264,6 +287,31 @@ export function App() {
               </button>
             ))}
           </div>
+          <div className="side-eyebrow">进行中目标 <button className="mini" onClick={refreshSidebars}>刷新</button></div>
+          <div className="session-list">
+            {goalOverview.filter((g) => !["COMPLETED", "CANCELLED", "FAILED"].includes(g.state)).length === 0 && (
+              <div className="empty">暂无进行中的目标</div>
+            )}
+            {goalOverview
+              .filter((g) => !["COMPLETED", "CANCELLED", "FAILED"].includes(g.state))
+              .slice(0, 12)
+              .map((g) => (
+                <button
+                  key={g.id}
+                  className={`side-item ${g.id === activeGoal ? "active" : ""}`}
+                  title={`${g.state} · ${g.task_count} 任务 · ${g.updated_at.slice(0, 16).replace("T", " ")}`}
+                  onClick={() => {
+                    setActiveProject((cur) => (cur === g.project_id ? cur : g.project_id));
+                    setActiveGoal(g.id);
+                    if (g.session_id) loadSession(g.session_id);
+                  }}
+                >
+                  <span className="dot" data-state={g.state} />
+                  <span className="side-goal-title">{g.title}</span>
+                  <span className="mono muted small">{g.state.slice(0, 6)}</span>
+                </button>
+              ))}
+          </div>
         </aside>
 
         <section className="agent-area" aria-label="Agent 区">
@@ -297,8 +345,17 @@ export function App() {
             )}
           </div>
 
-          {pendingApprovals.length > 0 && (
-            <div className="approval-strip">有待审批事项（见检查器）</div>
+          {approvals.length > 0 && (
+            <div className="approval-strip">
+              {approvals.slice(0, 3).map((a) => (
+                <span key={a.id} className="approval-item">
+                  待审批 · {a.title.length > 42 ? `${a.title.slice(0, 42)}…` : a.title}
+                  <button onClick={() => decideApproval(a.id, "approve")} title="批准并自动执行后续动作">批准</button>
+                  <button className="ghost" onClick={() => decideApproval(a.id, "reject")}>驳回</button>
+                </span>
+              ))}
+              {approvals.length > 3 && <span className="muted small">…共 {approvals.length} 项</span>}
+            </div>
           )}
 
           <div className={`taskbar mono ${taskBarOpen ? "open" : ""}`} onClick={() => setTaskBarOpen((v) => !v)} role="button" tabIndex={0}>

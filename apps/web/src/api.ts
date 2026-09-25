@@ -46,6 +46,9 @@ export class Api {
 
   // ---- goals ----
   goal(goalId: string) { return this.get(`/v1/goals/${goalId}`) as Promise<WorkCard>; }
+  goalsList(query = "") { return this.get(`/v1/goals${query}`) as Promise<{ goals: GoalListRow[] }>; }
+  approvals() { return this.get("/v1/approvals") as Promise<{ approvals: ApprovalRow[] }>; }
+  approvalDecision(id: string, decision: "approve" | "reject") { return this.post(`/v1/approvals/${id}/decision`, { decision }); }
   tasks(goalId: string) { return this.get(`/v1/goals/${goalId}/tasks`) as Promise<{ tasks: Task[] }>; }
   attempts(goalId: string) { return this.get(`/v1/goals/${goalId}/attempts`) as Promise<{ attempts: Attempt[] }>; }
   attemptEvents(attemptId: string) { return this.get(`/v1/attempts/${attemptId}/events`) as Promise<{ events: PlatformEvent[] }>; }
@@ -106,6 +109,16 @@ export interface OptimizerRun {
   reflection: string | null;
 }
 export interface EpochInfo { index: number; active_backend: string; frozen: boolean; status: string; }
+export interface GoalListRow {
+  id: string; title: string; state: string; priority: number; owner_id: string;
+  budget_cap_usd: string; created_at: string; updated_at: string; current_version: number;
+  project_id: string; session_id: string;
+  task_count: number; last_attempt_status: string | null;
+}
+export interface ApprovalRow {
+  id: string; goal_id: string | null; kind: string; title: string;
+  detail: unknown; scope: string; status: string; requested_by: string; created_at: string;
+}
 export interface WorkerRow {
   id: string; first_seen_at: string; last_seen_at: string;
   claims_total: number; polls_total: number; heartbeats_total: number;

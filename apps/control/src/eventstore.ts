@@ -84,18 +84,26 @@ export class EventStore {
     return res.rows[0] as StoredEvent;
   }
 
-  /** Replay events after a global cursor, optionally filtered by goal. */
+  /** Replay events after a global cursor, optionally filtered by goal/owner. */
   static async after(
     db: { query: Db["query"] },
     cursor: bigint | 0,
-    goalId?: string,
+    opts: { goalId?: string; owner?: { id: string; isAdmin: boolean } } = {},
     limit = 500,
   ): Promise<StoredEvent[]> {
     const params: unknown[] = [cursor, limit];
     let filter = "";
-    if (goalId) {
-      filter = " AND (goal_id = $3 OR $3 IS NULL)";
-      params.push(goalId);
+    if (opts.goalId) {
+      filter += " AND (goal_id = $3 OR $3 IS NULL)";
+      params.push(opts.goalId);
+    }
+    // owner scoping (P21): events carry other users' work summaries, so a
+    // member's stream only contains events for goals they own; goal-less
+    // system events (e.g. epoch switches) stay visible. Admins see all.
+    if (opts.owner && !opts.owner.isAdmin) {
+      const p = `$${params.length + 1}`;
+      filter += ` AND (goal_id IS NULL OR goal_id IN (SELECT id FROM goals WHERE owner_id = ${p}))`;
+      params.push(opts.owner.id);
     }
     const res = await db.query(
       `SELECT * FROM events WHERE seq > $1 ${filter} ORDER BY seq ASC LIMIT $2`,

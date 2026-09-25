@@ -583,3 +583,6 @@ a.run-row { color: inherit; text-decoration: none; }
 .worker-grid { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; font-size: 12.5px; }
 .worker-row { display: grid; grid-template-columns: 12px auto 1fr auto; align-items: center; gap: 10px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
 .report-link { text-decoration: none; color: inherit; }
+.approval-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 14px; }
+.approval-item button { padding: 1px 10px; font-size: 12px; }
+.side-goal-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
