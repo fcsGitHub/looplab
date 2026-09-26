@@ -1,0 +1,113 @@
+{
+ "run_kind": "partial-15min",
+ "started": "2026-09-26T04:34:37.058Z",
+ "ended": "2026-09-26T04:49:38.075Z",
+ "duration_s": 901,
+ "cycles": 442,
+ "errors": 0,
+ "faults": [
+  {
+   "at": "2026-09-26T04:35:39.922Z",
+   "kind": "pause_resume_drain",
+   "detail": "goal goal_1958421a42054b89"
+  },
+  {
+   "at": "2026-09-26T04:37:38.881Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7682"
+  },
+  {
+   "at": "2026-09-26T04:39:39.801Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7746"
+  },
+  {
+   "at": "2026-09-26T04:41:40.640Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7746"
+  },
+  {
+   "at": "2026-09-26T04:43:41.473Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7746"
+  },
+  {
+   "at": "2026-09-26T04:45:42.294Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7746"
+  },
+  {
+   "at": "2026-09-26T04:47:43.215Z",
+   "kind": "metrics_probe",
+   "detail": "lost=15 model_calls=7746"
+  }
+ ],
+ "goals_created": 3,
+ "platform_metrics": {
+  "uptime_s": 1268,
+  "goals": [
+   {
+    "state": "CANCELLED",
+    "n": 30
+   },
+   {
+    "state": "ACTIVE",
+    "n": 19
+   },
+   {
+    "state": "COMPLETED",
+    "n": 18
+   },
+   {
+    "state": "PAUSED_USER",
+    "n": 6
+   }
+  ],
+  "attempts": [
+   {
+    "status": "LOST",
+    "n": 15
+   },
+   {
+    "status": "COMMITTED",
+    "n": 693
+   }
+  ],
+  "events": {
+   "count": 42053,
+   "head": "42133"
+  },
+  "budget": [
+   {
+    "status": "open",
+    "settled": "0.000000",
+    "unknown": "0.000000",
+    "reserved": "0.019440"
+   },
+   {
+    "status": "settled",
+    "settled": "23.199427",
+    "unknown": "0.000000",
+    "reserved": "0.000000"
+   }
+  ],
+  "model": {
+   "calls": 7746,
+   "cost_usd": 22.928933,
+   "last_24h_usd": 7.319698,
+   "daily_cap_usd": null
+  },
+  "orchestrator": {
+   "last_reconcile_at": "2026-09-26T04:49:36.987Z",
+   "reconcile_totals": {
+    "lost": 0,
+    "reconcileRequired": 0
+   },
+   "last_error": null
+  }
+ },
+ "notes": [
+  "A17 72h 验收仅在 run_kind=A17-full-72h 且 errors 无关紧要时可作为通过证据；",
+  "短时运行记录为部分浸泡测试：证明机制可运行、可观测、故障可恢复，不代表 72 小时稳定性。"
+ ]
+}
