@@ -8,7 +8,7 @@
 // mid-call the reservation remains as unknown cost — exactly the A08 rule.
 import { DeepSeekClient, estimateCostUsd, LlmHttpError, type ChatMessage, type ToolDefinition, type ChatResult } from "@looplab/llm";
 import { EventStore } from "./eventstore.js";
-import { BudgetService, BudgetExceededError } from "./budget.js";
+import { BudgetService, BudgetExceededError, IdempotencyConflictError } from "./budget.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 
@@ -49,7 +49,7 @@ export class LlmGateway {
     }));
   }
 
-  async call(input: GatewayCallInput): Promise<ChatResult> {
+  async call(input: GatewayCallInput): Promise<ChatResult & { replayed?: boolean }> {
     const model = input.model === "reasoner" ? this.config.deepseek.reasonerModel : this.config.deepseek.chatModel;
     const maxTokens = input.maxTokens ?? 2048;
     const promptChars = input.messages.reduce((a, m) => a + (m.content?.length ?? 0), 0);
@@ -58,6 +58,25 @@ export class LlmGateway {
       input.reserveUsd ??
       (promptTokens / 1000) * this.config.costPer1kPromptUsd +
         (maxTokens / 1000) * this.config.costPer1kCompletionUsd;
+
+    // V23: a REUSED idempotency key must never trigger a second billable call.
+    // Callers control keys on several planes (worker `idempotency_key`,
+    // optimizer `call_seq`); replaying the first call's recorded response keeps
+    // accounting honest — the reservation, goal cap and daily fuse each count
+    // the logical call exactly once.
+    const pre = await this.db.query(
+      "SELECT id FROM budget_reservations WHERE idempotency_key=$1", [input.idempotencyKey],
+    );
+    if (pre.rows[0]) {
+      const rec = await this.budget.recordedResponse(pre.rows[0].id);
+      if (rec.state === "settled") {
+        return { ...(rec.response as ChatResult), replayed: true };
+      }
+      if (rec.state === "in_flight") throw new IdempotencyConflictError(input.idempotencyKey);
+      // released/unknown state on a reused key: fall through is unsafe (double
+      // settle would overwrite), so refuse as well
+      throw new IdempotencyConflictError(input.idempotencyKey);
+    }
 
     // global 24h spend fuse (P18): per-goal caps cannot see cross-goal
     // aggregate burn; DAILY_BUDGET_USD>0 turns the whole gateway off once
@@ -79,7 +98,7 @@ export class LlmGateway {
     }
 
     // tx 1: reserve
-    const { id: reservationId } = await this.db.tx(async (client) => {
+    const { id: reservationId, reused } = await this.db.tx(async (client) => {
       const res = await this.budget.reserve(client, {
         goalId: input.goalId,
         attemptId: input.attemptId ?? null,
@@ -88,6 +107,9 @@ export class LlmGateway {
         amount: Math.max(worstCaseUsd, 0.0001),
         idempotencyKey: input.idempotencyKey,
       });
+      // concurrent duplicate of the same NEW key: the loser sees reused here —
+      // refuse rather than double-bill (the winner's response is not settled yet)
+      if (res.reused) throw new IdempotencyConflictError(input.idempotencyKey);
       await EventStore.append(client, {
         aggregateType: input.attemptId ? "attempt" : "goal",
         aggregateId: input.attemptId ?? input.goalId,
@@ -135,10 +157,14 @@ export class LlmGateway {
       throw err;
     }
 
-    // tx 2: settle actual usage
+    // tx 2: settle actual usage (the recorded response makes the idempotency
+    // key replayable — V23)
     const cost = estimateCostUsd(result.usage, this.config.costPer1kPromptUsd, this.config.costPer1kCompletionUsd);
     await this.db.tx(async (client) => {
-      await this.budget.settle(client, reservationId, cost);
+      await this.budget.settle(client, reservationId, cost, {
+        message: result.message, model: result.model,
+        finish_reason: result.finish_reason, usage: result.usage,
+      });
       if (input.attemptId) {
         await client.query(
           `UPDATE attempts SET model_calls = model_calls + 1, settled_usd = settled_usd + $2

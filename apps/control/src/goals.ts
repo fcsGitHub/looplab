@@ -154,7 +154,7 @@ export class GoalService {
         model: "chat",
         maxTokens: 1600,
         temperature: 0.2,
-        idempotencyKey: `plan_${goalId}_v${version}`,
+        idempotencyKey: `plan_${goalId}_v${version}_${Date.now()}`,
         actor: { kind: "agent", id: "planner" },
         messages: [
           { role: "system", content: PLANNER_SYSTEM },
@@ -411,7 +411,7 @@ export class GoalService {
    * (a user/agent-supplied edit) takes precedence over LLM re-planning and is
    * validated by compileGraph either way.
    */
-  async applyRevision(goalId: string, newText: string, userId: string, providedGraph?: unknown): Promise<void> {
+  async applyRevision(goalId: string, newText: string, userId: string, providedGraph?: unknown, commandRowId?: string): Promise<void> {
     const goal = (await this.db.query("SELECT * FROM goals WHERE id=$1", [goalId])).rows[0];
     if (!goal) throw new Error("goal not found");
     const nextVersion = goal.current_version + 1;
@@ -535,10 +535,13 @@ export class GoalService {
       );
     });
 
+    // mark THIS command applied — the old "everything ACCEPTED for the goal"
+    // sweep also consumed commands that arrived mid-revision, losing them (P25)
     await this.db.query(
       `UPDATE commands SET status='APPLIED', applied_at=now()
-        WHERE goal_id=$1 AND kind='revise' AND status='ACCEPTED'`,
-      [goalId],
+        WHERE goal_id=$1 AND kind='revise' AND status='ACCEPTED'
+          AND ($2::text IS NULL OR id=$2)`,
+      [goalId, commandRowId ?? null],
     );
   }
 
@@ -572,6 +575,11 @@ export class GoalService {
       `SELECT count(*) FILTER (WHERE state='SUCCEEDED') AS done, count(*) AS total
          FROM tasks WHERE graph_version_id=$1`, [graph?.id],
     )).rows[0];
+    // a PENDING approval is the most actionable "why is my goal idle" answer —
+    // surface it in the work card instead of leaving ACTIVE goals opaque (P25)
+    const pendingApproval = (await this.db.query(
+      `SELECT 1 FROM approvals WHERE goal_id=$1 AND status='PENDING' LIMIT 1`, [goalId],
+    )).rows.length > 0;
 
     return {
       goal_id: goalId,
@@ -584,7 +592,8 @@ export class GoalService {
       waiting_reason:
         goal.state === "PAUSED_USER" ? "PAUSED_USER" :
         goal.state === "WAITING_RESOURCE" ? "WAITING_RESOURCE" :
-        goal.state === "BLOCKED_INPUT" ? "BLOCKED_INPUT" : null,
+        goal.state === "BLOCKED_INPUT" ? (goal.paused_reason ?? "BLOCKED_INPUT") :
+        pendingApproval ? "awaiting_approval" : null,
       next_step: nextTask?.title ?? null,
       budget: {
         used: Number(Number(budget.settled).toFixed(4)),

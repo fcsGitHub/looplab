@@ -93,6 +93,14 @@ export class AgentLoop {
     if (propagated.length) {
       messages.push({ role: "user", content: `[系统] 前序任务交付物已放入工作区：${propagated.join(", ")}` });
     }
+    // A2A handoff notes: what each predecessor CLAIMS it delivered — successors
+    // must build on these recorded claims instead of guessing file contents
+    for (const note of this.spec.handoff_notes ?? []) {
+      messages.push({
+        role: "user",
+        content: `[交接·来自前序任务 ${note.from_task_key}（${note.from_role}，${note.outcome}）] ${note.summary}`,
+      });
+    }
 
     const toolDefs = this.spec.allowed_tools.map((t) => ({
       type: "function" as const,
@@ -348,8 +356,12 @@ export function parseResult(text: string | null): { summary: string; outcome: "S
 
 export async function safeJoin(workspace: string, rel: string): Promise<string> {
   const path = await import("node:path");
+  const root = path.resolve(workspace);
   const abs = path.resolve(workspace, rel);
-  if (!abs.startsWith(path.resolve(workspace))) throw new Error("path escapes workspace");
+  // separator-aware containment: the bare startsWith check accepted
+  // ../<sibling-attempt-id-prefix>/file — a real cross-attempt read on a
+  // shared worker (P25; every other containment site already used root+sep)
+  if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error("path escapes workspace");
   return abs;
 }
 

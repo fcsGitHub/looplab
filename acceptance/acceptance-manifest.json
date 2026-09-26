@@ -11,7 +11,7 @@
     "BLOCKED",
     "NOT_RUN"
   ],
-  "last_full_run": "2026-09-26 (109 passed / 2 skipped)",
+  "last_full_run": "2026-09-26 (121 passed / 2 skipped)",
   "cases": [
     {
       "id": "A01",
@@ -358,6 +358,20 @@
         "workers/agent-worker/src/index.ts (shared env loader + claim fail-fast)",
         "packages/llm/src/index.ts (默认 180s 超时，悬挂连接不再卡死单线程 worker)"
       ]
+    },
+    {
+      "id": "A34",
+      "scenario": "P25 第二轮安全审计修复：审批/证据/假设协议跨租户越权（V20/V21/V22）、LLM 幂等键重放计费绕过（V23）、propagated 下载 XSS 缺口（V24）、artifact 归因伪造（V25）、指针/发布/纪元全局提权（V26/V27）",
+      "expected": "GET/POST /v1/approvals 按属主过滤（他人审批 404，批准只进自己目标）；evidence/verify 与 hypotheses/:id/protocol 补 goalScope 且 arms×seeds≤256；同幂等键二次调用回放首次响应（model.call_completed 恰好一次，settle 不被覆盖）；propagated 下载对可脚本类型降级 octet-stream+attachment+nosniff；artifact 上传 goal 归因取自 attempt 行（头部 x-goal-id 被忽略，attempt 内禁止 global scope，未知 attempt 404）；/v1/pointers、promote、rollback、epoch/settle 收紧 admin 且 settle 校验 isKnownBackend；worker 平台 max_tokens≤8192、优化器预算钳制",
+      "test": "tests/integration/a34-p25-security.test.ts",
+      "status": "PASS"
+    },
+    {
+      "id": "A35",
+      "scenario": "P25 长时运行可靠性：停滞看门狗（ACTIVE 且无可领任务/无在途 attempt/无待审批 → 事件+BLOCKED_INPUT）、A2A 结构化交接（前驱 RESULT 摘要入 RunSpec.handoff_notes）、revise 循环上限（防诊断→审批→修订无限循环）、/v1/metrics 按角色统计",
+      "expected": "看门狗两跳确认后目标转 BLOCKED_INPUT（paused_reason=stalled_no_progress）并记录 goal.stalled 事件（payload 含 waiting/failed 任务计数）；有待审批目标保持 ACTIVE 且 workCard.waiting_reason=awaiting_approval；claim 的 spec.handoff_notes 携带前驱 {from_task_key, from_role, outcome, summary}；≥8 次已应用修订后新 revise 命令 FAILED + goal BLOCKED_INPUT(revise_cap) + goal.revise_capped 事件；/v1/metrics 返回 roles 数组（attempts/committed/lost/model_calls/settled_usd 按角色）与 orchestrator.stall_totals",
+      "test": "tests/integration/a35-watchdog-handoff.test.ts",
+      "status": "PASS"
     }
   ],
   "real_model_smoke": {

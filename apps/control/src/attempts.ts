@@ -80,6 +80,10 @@ export class AttemptsService {
       if (att.worker_id !== input.workerId || Number(att.lease_epoch) !== input.leaseEpoch) {
         throw new FencingError("stale fencing token");
       }
+      // serialize seq assignment per attempt: two concurrent reports would both
+      // read MAX(seq)+1 and one would die on the (attempt_id, seq) unique
+      // constraint, losing the tool result (P25; same pattern as EventStore)
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`tool_results:${input.attemptId}`]);
       await client.query(
         `INSERT INTO tool_results (attempt_id, seq, tool, ok, output_digest, output_bytes, duration_ms, lease_epoch)
          VALUES ($1, (SELECT COALESCE(MAX(seq),0)+1 FROM tool_results WHERE attempt_id=$1), $2,$3,$4,$5,$6,$7)`,
@@ -152,8 +156,10 @@ export class AttemptsService {
       }
       await client.query(
         `UPDATE attempts SET status='COMMITTED', ended_at=now(),
-           error_class=$2, heartbeat_at=now() WHERE id=$1`,
-        [body.attempt_id, body.outcome === "FAILED" ? (body.error_class ?? "task_failed") : null],
+           error_class=$2, heartbeat_at=now(), summary=$3 WHERE id=$1`,
+        [body.attempt_id, body.outcome === "FAILED" ? (body.error_class ?? "task_failed") : null,
+          // persisted for A2A handoff: successors receive this recorded summary
+          body.summary.slice(0, 1000)],
       );
       for (const a of body.artifacts) {
         await client.query(

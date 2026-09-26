@@ -1,5 +1,65 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-26 04:30（P25 停滞看门狗 + A2A 交接 + 第二轮安全审计）· 分支：`main`
+
+## 本轮新增：P25 — 长时运行可靠性 + 安全审计第二轮（2026-09-26）
+
+接管后对「agent 不间断运行能力」做系统勘察，结论：P20 修复后仍存在四类静默停滞
+（FAILED 诊断不发起任何流程、审批悬挂、BLOCKED_INPUT 后裸 resume、依赖死锁），
+ACTIVE 目标会永远沉默。本轮围绕用户目标四条主线落地：
+
+### 1. 长时运行：停滞看门狗 + 防幻觉循环刹车
+
+| 机制 | 行为 |
+|---|---|
+| **停滞看门狗**（orchestrator tick 新步骤） | ACTIVE 且（无可领任务 ∧ 无在途 attempt ∧ 无待审批）连续两跳 + 15s 确认 → `goal.stalled` 事件（含 waiting/failed 计数）+ 目标转 BLOCKED_INPUT（paused_reason=stalled_no_progress）。UI workCard 直接显示原因。有待审批的目标保持 ACTIVE，workCard.waiting_reason=awaiting_approval |
+| **revise 循环上限** | 每目标已应用修订 ≥8 时，新 revise 命令 FAILED + BLOCKED_INPUT(revise_cap) + `goal.revise_capped` 事件。诊断→审批→修订循环不再可能无限烧钱——人审是幻觉刹车，上限是刹车失灵时的护栏 |
+| **revise 命令按行标记** | 原实现按 objective 文本去重（同文本修订永远悬挂）且 applyRevision 一揽子标记全部 ACCEPTED（修订中途到达的命令被吞）；改为按命令行 ID 标记/失败，planner 幂等键加 nonce（失败重试不再永久 409） |
+
+### 2. A2A 交接：结构化 handoff（防幻觉协作）
+
+原交接只有文件名。现在 commit 时把 RESULT 摘要持久化到 `attempts.summary`，
+claim 时调度器解析直接前驱最新 COMMITTED 摘要进 `RunSpec.handoff_notes`
+（{from_task_key, from_role, outcome, summary}，≤8 条、各 600 字符），
+两个运行时都注入为系统消息：后继 agent 基于**前驱记录在案的主张**工作，
+而不是猜测文件内容——这是交接的防幻觉半边。
+
+### 3. 安全审计第二轮（V20–V27 + 5 处正确性）
+
+| # | 缺陷 | 修复 |
+|---|---|---|
+| V20 | **审批面零租户隔离**：任何 member 可见并可批准他人 goal_revise（向他人目标注入 revise 命令） | 列表按属主过滤（admin 全量）；决策校验 goal 属主 |
+| V21 | evidence/verify 仅凭 id 可达（向他人账本写核验事件） | goalScope |
+| V22 | hypotheses/:id/protocol 无属主校验且 arms×seeds 无上限（5k×5k=25M 行 DoS） | 属主校验 + 原始规模先拒绝后钳制（≤8×≤32、积≤256、reps≤50） |
+| V23 | **LLM 幂等键计费绕过**：reserve 返回 reused 时网关照样发起新计费调用，settle 覆盖原结算——worker/优化器平面的可控键（idempotency_key/call_seq）可无上限消费而预算恒定 | 预算表新增 response 列；同键重放已记录响应（不再计费）；在途键 409；并发同新键输家 409；meteredLlm 重放不重复计 run 内花费；max_tokens≤8192、优化器预算钳制（指标≤2000、LLM≤$5） |
+| V24 | propagated 下载返回 worker 供应商 media_type 且无 disposition（V19 加固遗漏路径，同源存储 XSS） | 与 /v1/artifacts 相同的四重头加固 |
+| V25 | artifact 上传信任归因头（可向他者目标注入工件、以 worker 身份发布全局可见行） | goal 归因一律取自 attempt 行（头部忽略）；attempt 内禁止 global scope；未知 attempt 404 |
+| V26 | /v1/pointers、promote、rollback 操作全局版本指针，任何 member 可达 | 全部 admin-only（服务层直调不受影响） |
+| V27 | epoch/settle 任何 member 可切换平台优化器且挑战者 id 不校验 | admin-only + isKnownBackend 白名单 |
+| C10 | tool_results 并发上报序号竞态（唯一键炸 500 丢结果） | 与 EventStore 相同的 per-attempt advisory lock |
+| C11 | 优化器后端 result.json 损坏 → run 永久 RUNNING（token 6h 有效） | 解析失败走 failRun |
+| C13 | runner 子进程 stdin EPIPE 可崩整个控制进程；stdout/stderr 无界累积 | stdin error handler + 2MB 累积上限 |
+| C14 | worker safeJoin 前缀检查无分隔符（`../<兄弟 attempt 前缀>/` 可跨 attempt 读） | root+path.sep 收容（与其余站点一致） |
+| C16 | 心跳 steer 无效 UPDATE（双投递窗口） | 移除，纯 SELECT |
+
+### 4. 多智能体监控 + 性能
+
+- `/v1/metrics` 新增 `roles[]`（每角色 attempts/committed/lost/model_calls/settled_usd）
+  与 `orchestrator.stall_totals`；停滞原因进 workCard.waiting_reason。
+- 热路径索引（attempts(goal_id,created_at)、attempts(task_id,attempt_no)、
+  tool_results(attempt_id,seq)、steers(goal_id,attempt_id,status)）；
+  pool 加 statement_timeout/idle/connection 超时；migrate 加跨进程 advisory lock；
+  scrypt 异步化（注册/登录不再阻塞事件循环——SSE/心跳不再被 KDF 卡顿）；
+  过期会话每 3 分钟有界清理。
+
+### 验证
+
+- 新测试 `a34-p25-security.test.ts`（8）+ `a35-watchdog-handoff.test.ts`（4），
+  全量 **121 passed / 2 skipped / 0 failed**（109 → 121）；typecheck/build 双绿。
+- 验收清单新增 A34/A35（35 cases）。
+
+---
+
 更新时间：2026-09-26 03:20（P23 TaskPack 路径收口 + 全链 e2e 轮）· 分支：`main`
 
 ## 本轮新增：P23 — V18 任意读/可信层执行链 + e2e 全链化（2026-09-26）

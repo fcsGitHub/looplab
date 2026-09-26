@@ -177,12 +177,16 @@ export class OptimizerService {
       messages: input.messages,
     });
     const cost = estimateCostUsd(result.usage, this.config.costPer1kPromptUsd, this.config.costPer1kCompletionUsd);
-    await this.db.tx(async (client) => {
-      await client.query(
-        `UPDATE optimizer_runs SET llm_calls = llm_calls + 1, spent_usd = spent_usd + $2 WHERE id=$1`,
-        [run.id, cost],
-      );
-    });
+    // a replayed idempotent call already counted against this run's cap when
+    // it first executed — counting it again would double-book the budget
+    if (!result.replayed) {
+      await this.db.tx(async (client) => {
+        await client.query(
+          `UPDATE optimizer_runs SET llm_calls = llm_calls + 1, spent_usd = spent_usd + $2 WHERE id=$1`,
+          [run.id, cost],
+        );
+      });
+    }
     return {
       content: result.message.content ?? "",
       usage: {
@@ -349,7 +353,16 @@ export class OptimizerService {
     }
 
     const outDir: string = manifest.out_dir;
-    const payload = JSON.parse(readFileSync(path.join(outDir, "result.json"), "utf8"));
+    // parse failures here used to leave the run RUNNING forever with a valid
+    // token until TTL — route them through failRun like every other backend error
+    let payload: any;
+    try {
+      payload = JSON.parse(readFileSync(path.join(outDir, "result.json"), "utf8"));
+    } catch (err) {
+      const reason = `result.json unreadable: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`;
+      await this.failRun(runId, reason);
+      throw new Error(reason);
+    }
     try {
       const res = await this.completeRun({ token, payload });
       return { ...res, usage: payload.usage };

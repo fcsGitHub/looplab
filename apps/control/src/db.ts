@@ -9,12 +9,23 @@ export class Db {
   readonly pool: Pool;
 
   constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl, max: 20 });
+    this.pool = new Pool({
+      connectionString: databaseUrl,
+      max: 20,
+      // a stuck query must not squat a connection forever — the pool is shared
+      // by SSE polls, the orchestrator tick and all workers (P25)
+      statement_timeout: 30_000,
+      connectionTimeoutMillis: 5_000,
+      idleTimeoutMillis: 60_000,
+    });
   }
 
   async migrate(): Promise<string[]> {
     const client = await this.pool.connect();
     try {
+      // two control processes booting against one DB must not interleave
+      // migration application — serialize on an advisory lock (P25)
+      await client.query("SELECT pg_advisory_lock(918273650)");
       await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
         name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
       const done = new Set(
@@ -38,6 +49,7 @@ export class Db {
       }
       return applied;
     } finally {
+      await client.query("SELECT pg_advisory_unlock(918273650)").catch(() => {});
       client.release();
     }
   }
