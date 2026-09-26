@@ -11,7 +11,7 @@
     "BLOCKED",
     "NOT_RUN"
   ],
-  "last_full_run": "2026-09-26 (121 passed / 2 skipped)",
+  "last_full_run": "2026-09-27 (122 passed / 2 skipped)",
   "cases": [
     {
       "id": "A01",
@@ -371,6 +371,13 @@
       "scenario": "P25 长时运行可靠性：停滞看门狗（ACTIVE 且无可领任务/无在途 attempt/无待审批 → 事件+BLOCKED_INPUT）、A2A 结构化交接（前驱 RESULT 摘要入 RunSpec.handoff_notes）、revise 循环上限（防诊断→审批→修订无限循环）、/v1/metrics 按角色统计",
       "expected": "看门狗两跳确认后目标转 BLOCKED_INPUT（paused_reason=stalled_no_progress）并记录 goal.stalled 事件（payload 含 waiting/failed 任务计数）；有待审批目标保持 ACTIVE 且 workCard.waiting_reason=awaiting_approval；claim 的 spec.handoff_notes 携带前驱 {from_task_key, from_role, outcome, summary}；≥8 次已应用修订后新 revise 命令 FAILED + goal BLOCKED_INPUT(revise_cap) + goal.revise_capped 事件；/v1/metrics 返回 roles 数组（attempts/committed/lost/model_calls/settled_usd 按角色）与 orchestrator.stall_totals",
       "test": "tests/integration/a35-watchdog-handoff.test.ts",
+      "status": "PASS"
+    },
+    {
+      "id": "A36",
+      "scenario": "控制进程 DB 池韧性（V28）：夜间 PG 维护从服务端杀死空闲池连接（FATAL 57P01），未处理的 pg Pool error 事件曾崩掉整个控制服务（生产实例真实发生）",
+      "expected": "Db 池挂 error 处理器（记录并回收死连接）；外部 pg_terminate_backend 复现同一 FATAL 后进程存活，下一查询经新连接透明完成；PG 重启后控制服务与 worker 自动恢复",
+      "test": "tests/unit/db-pool-resilience.test.ts",
       "status": "PASS"
     }
   ],

@@ -18,6 +18,14 @@ export class Db {
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 60_000,
     });
+    // pg REQUIRES the pool 'error' event to be handled: an idle client dying
+    // underneath us (server restart, admin pg_terminate_backend, network
+    // blip) emits it, and unhandled 'error' kills the whole control process —
+    // exactly what must never happen to a long-running daemon. Log it; the
+    // pool discards the dead client and opens a fresh one on the next query.
+    this.pool.on("error", (err) => {
+      console.error(`[db] idle client error (pool will recycle it): ${err.message}`);
+    });
   }
 
   async migrate(): Promise<string[]> {

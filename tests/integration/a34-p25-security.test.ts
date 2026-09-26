@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestEnv, authedUser, loginAs, fixture, type TestEnv } from "../helpers/spawn-control.js";
 
 let env: TestEnv;
-let admin: ReturnType<typeof loginAs>;
+let admin: Awaited<ReturnType<typeof loginAs>>;
 let fakeLlm: Server;
 let fakeLlmUrl = "";
 

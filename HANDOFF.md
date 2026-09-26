@@ -1,5 +1,20 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-27（P25 补遗：DB 池韧性）· 分支：`main`
+
+## P25 补遗：控制进程因 PG 维护崩溃（V28，2026-09-27 活体发现并修复）
+
+夜间 Postgres 维护（服务端 `pg_terminate_backend` / 重启，FATAL 57P01）杀死空闲池连接，
+pg Pool 的 `error` 事件无人处理 → 未处理错误直接**崩掉整个控制进程**——长时运行守护
+进程最不可接受的失效模式。`Db` 构造器现挂 `pool.on('error')`（记录日志、池自动换新
+连接）；回归测试 `tests/unit/db-pool-resilience.test.ts` 从外部 `pg_terminate_backend`
+复现同一 FATAL 并断言进程存活、下一查询透明重连。恢复记录：Docker Desktop +
+`looplab-pg` 容器重启后控制服务与两个 worker 全部自动恢复（注册表 last_seen 复验）。
+
+全量 **122 passed / 2 skipped / 0 failed**（含新测试）。
+
+---
+
 更新时间：2026-09-26 04:30（P25 停滞看门狗 + A2A 交接 + 第二轮安全审计）· 分支：`main`
 
 ## 本轮新增：P25 — 长时运行可靠性 + 安全审计第二轮（2026-09-26）
