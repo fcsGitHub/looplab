@@ -1,26 +1,35 @@
 // Auth: local accounts + httpOnly session cookies. scrypt from node:crypto —
 // no native deps. First registered user becomes admin.
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
+import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from "node:crypto";
+import { promisify } from "node:util";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "./db.js";
 
 export const SESSION_COOKIE = "ll_session";
 
-export function hashPassword(password: string): string {
+const scrypt = promisify(scryptCb) as (p: string, s: string, k: number) => Promise<Buffer>;
+// registration/login used scryptSync, blocking the event loop for the whole
+// KDF (~50ms) per request — a burst of registrations stalled SSE + heartbeats
+// (P25). The async form yields; the stored format is unchanged.
+const KEYLEN = 64;
+const MAX_PASSWORD_LENGTH = 1024;
+const MAX_USERNAME_LENGTH = 64;
+
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, 64).toString("hex");
+  const hash = (await scrypt(password, salt, KEYLEN)).toString("hex");
   return `scrypt$${salt}$${hash}`;
 }
 
 // shape-compatible scrypt record for the unknown-username timing equalizer
 const DUMMY_HASH = `scrypt$${"0".repeat(32)}$${"0".repeat(128)}`;
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
   const salt = parts[1]!;
   const hash = parts[2]!;
-  const candidate = scryptSync(password, salt, 64);
+  const candidate = await scrypt(password, salt, KEYLEN);
   const expected = Buffer.from(hash, "hex");
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
@@ -40,22 +49,22 @@ export class AuthService {
       const id = `usr_${randomBytes(8).toString("hex")}`;
       await client.query(
         "INSERT INTO users (id, username, password_hash, role) VALUES ($1,$2,$3,$4)",
-        [id, username, hashPassword(password), role],
+        [id, username.slice(0, MAX_USERNAME_LENGTH), await hashPassword(password), role],
       );
       return { id, role };
     });
   }
 
   async login(username: string, password: string): Promise<{ token: string; userId: string } | null> {
-    const res = await this.db.query("SELECT id, password_hash FROM users WHERE username=$1", [username]);
+    const res = await this.db.query("SELECT id, password_hash FROM users WHERE username=$1", [username.slice(0, MAX_USERNAME_LENGTH)]);
     const user = res.rows[0];
     if (!user) {
       // burn the same scrypt cost as a real verification: without this, the
       // response timing reveals whether a username exists (P19 fix)
-      verifyPassword(password, DUMMY_HASH);
+      await verifyPassword(password, DUMMY_HASH);
       return null;
     }
-    if (!verifyPassword(password, user.password_hash)) return null;
+    if (!(await verifyPassword(password, user.password_hash))) return null;
     const token = randomBytes(32).toString("hex");
     const id = `ses_${randomBytes(8).toString("hex")}`;
     await this.db.query(

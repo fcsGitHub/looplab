@@ -5,12 +5,13 @@ import path from "node:path";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { EventStore } from "../eventstore.js";
 import { AuthService, SESSION_COOKIE } from "../auth.js";
-import { BudgetExceededError } from "../budget.js";
+import { BudgetExceededError, IdempotencyConflictError } from "../budget.js";
 import { FencingError } from "../attempts.js";
 import { OptimizerAuthError, OptimizerBudgetExceededError } from "../optimizer.js";
 import { ReleaseConflictError, ReleaseBlockedError } from "../releases.js";
 import { RateLimiter } from "../ratelimit.js";
 import { infraEnv } from "../childenv.js";
+import { isKnownBackend } from "@looplab/contracts";
 import type { ControlServices } from "./services.js";
 
 export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
@@ -76,6 +77,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     }
     return row;
   };
+  const requireAdmin = async (req: any, reply: FastifyReply): Promise<boolean> => {
+    if (req.user!.role !== "admin") {
+      await reply.code(403).send({ error: "admin only" });
+      return false;
+    }
+    return true;
+  };
 
   // ---- auth ----------------------------------------------------------------
   app.post("/v1/auth/register", async (req, reply) => {
@@ -86,6 +94,10 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     const { username, password } = req.body as any;
     if (!username || !password || String(password).length < 4) {
       return reply.code(400).send({ error: "username and password(>=4 chars) required" });
+    }
+    // bound the KDF input: a megabyte password would burn scrypt CPU per attempt
+    if (String(username).length > 64 || String(password).length > 1024) {
+      return reply.code(400).send({ error: "username/password too long" });
     }
     try {
       const user = await svc.auth.register(String(username), String(password));
@@ -428,6 +440,9 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.get("/v1/pointers", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // version pointers are GLOBAL platform state (scope strings span tenants);
+    // the list itself discloses every tenant's release topology (V26)
+    if (!(await requireAdmin(req, reply))) return;
     return { pointers: (await svc.db.query("SELECT * FROM version_pointers")).rows };
   });
 
@@ -495,12 +510,30 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/hypotheses/:id/protocol", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // V22: freezeProtocol was reachable by hypothesis id alone (no ownership
+    // check, unlike run/analyze below), and the arms×seeds cross product had
+    // no upper bound — a 5k×5k body inserted 25M experiment_runs rows.
+    const hyp = (await svc.db.query(
+      `SELECT h.goal_id, g.owner_id FROM hypotheses h JOIN goals g ON g.id=h.goal_id WHERE h.id=$1`,
+      [(req.params as any).id],
+    )).rows[0] as { goal_id: string; owner_id: string } | undefined;
+    if (!hyp || (req.user!.role !== "admin" && hyp.owner_id !== req.user!.id)) {
+      return reply.code(404).send({ error: "hypothesis not found" });
+    }
     const b = req.body as any;
+    const armsRaw = Array.isArray(b.arms) ? b.arms : [];
+    const seedsRaw = Array.isArray(b.seeds) ? b.seeds : [];
+    // reject BEFORE any clamping so oversized designs can't slip through sliced
+    if (armsRaw.length > 8 || seedsRaw.length > 32 || armsRaw.length * seedsRaw.length > 256) {
+      return reply.code(400).send({ error: "arms × seeds exceeds 256 — shrink the design" });
+    }
+    const arms = armsRaw;
+    const seeds = seedsRaw.map(Number).filter(Number.isFinite);
+    const repetitions = Math.min(Math.max(Number(b.repetitions ?? 3) || 3, 1), 50);
     try {
       const planId = await svc.research.freezeProtocol({
         hypothesisId: (req.params as any).id,
-        arms: b.arms, repetitions: Number(b.repetitions ?? 3),
-        seeds: (b.seeds ?? []).map(Number),
+        arms, repetitions, seeds,
         analysisPlan: {
           metric: String(b.analysis_plan?.metric ?? "cost_us"),
           minEffect: Number(b.analysis_plan?.min_effect ?? 0),
@@ -543,10 +576,15 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
       });
       let stdout = "", stderr = "";
       const timer = setTimeout(() => child.kill(), timeoutMs);
-      child.stdout.on("data", (d) => { stdout += d; });
-      child.stderr.on("data", (d) => { stderr += d; });
+      // bound accumulation: a chatty runner must not balloon control memory (P25)
+      const cap = 2 * 1024 * 1024;
+      child.stdout.on("data", (d) => { if (stdout.length < cap) stdout += d; });
+      child.stderr.on("data", (d) => { if (stderr.length < cap) stderr += d; });
       child.on("error", (e) => { clearTimeout(timer); reject(e); });
       child.on("close", (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+      // a runner that exits before reading its stdin emits EPIPE on the write
+      // side — without a handler that error crashed the whole control process
+      child.stdin.on("error", () => { /* runner died early; close event carries the code */ });
       child.stdin.write(JSON.stringify(reqBody));
       child.stdin.end();
     });
@@ -572,6 +610,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (proc.code !== 0) return reply.code(500).send({ error: (proc.stderr || "runner failed").slice(0, 300) });
     let out: any;
     try { out = JSON.parse(proc.stdout); } catch { return reply.code(500).send({ error: "runner output unreadable" }); }
+    if (!Array.isArray(out.runs)) return reply.code(500).send({ error: "runner output has no runs array" });
     for (const r of out.runs as any[]) {
       const match = runs.find((x: any) => x.arm === r.arm && Number(x.seed) === Number(r.seed));
       if (!match) continue;
@@ -597,6 +636,9 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/goals/:id/evidence/verify", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // scope like every other goal route: verification events land in the goal
+    // ledger, so reaching it by id alone was a cross-tenant write (V21)
+    if (!(await goalScope(req, reply, (req.params as any).id))) return;
     return svc.evidence.verifyReferences((req.params as any).id);
   });
 
@@ -664,6 +706,10 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   app.post("/v1/goals/:id/evolution/promote", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     if (!(await goalScope(req, reply, (req.params as any).id))) return;
+    // the release pointer is GLOBAL: promote moves it for every tenant, so the
+    // HTTP surface is operator-only (service-layer callers keep direct access;
+    // the goal-scoped check above still gates id probing) (V26)
+    if (!(await requireAdmin(req, reply))) return;
     const { candidate_id, scope, kind } = req.body as any;
     const res = await svc.evolution.promote({
       goalId: (req.params as any).id, candidateId: String(candidate_id),
@@ -677,6 +723,8 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     // operator-initiated rollback of a canary/full release pointer
     if (!(await requireAuth(req, reply))) return;
     if (!(await goalScope(req, reply, (req.params as any).id))) return;
+    // rollback moves the same GLOBAL pointer — operator-only (V26)
+    if (!(await requireAdmin(req, reply))) return;
     const { scope, reason } = req.body as any;
     try {
       const res = await svc.releases.rollback({
@@ -706,6 +754,12 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // Session-authenticated management surface. The backend process itself
   // authenticates with the run token issued by createRun; it never sees the
   // model key and can only reach the metered LLM proxy + complete.
+  // operator-defensible ceilings on caller-supplied budgets (V23 hardening):
+  // these parametrize metered spend, so they cannot be arbitrary
+  const clampRunBudget = (b: any) => ({
+    maxMetricCalls: Math.min(Math.max(Number(b.max_metric_calls ?? 60) || 60, 1), 2000),
+    maxLlmCostUsd: Math.min(Math.max(Number(b.max_llm_cost_usd ?? 0.5) || 0.5, 0.001), 5),
+  });
   app.post("/v1/goals/:id/optimizer/runs", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
     if (!(await goalScope(req, reply, (req.params as any).id))) return;
@@ -715,8 +769,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         goalId: (req.params as any).id,
         backend: String(b.backend ?? "gepa@0.1.4"),
         mode: b.mode === "epoch_trial" ? "epoch_trial" : "active",
-        maxMetricCalls: Number(b.max_metric_calls ?? 60),
-        maxLlmCostUsd: Number(b.max_llm_cost_usd ?? 0.5),
+        ...clampRunBudget(b),
         reflection: b.reflection === "scripted" ? "scripted" : "gateway",
         gatewayUrl: `${req.protocol}://${req.headers.host}/v1/optimizer/llm`,
         taskpackId: b.taskpack_id ? String(b.taskpack_id) : undefined,
@@ -745,11 +798,10 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         goalId: (req.params as any).id,
         backend: String(b.backend ?? "gepa@0.1.4"),
         mode: b.mode === "epoch_trial" ? "epoch_trial" : "active",
-        maxMetricCalls: Number(b.max_metric_calls ?? 60),
-        maxLlmCostUsd: Number(b.max_llm_cost_usd ?? 0.5),
+        ...clampRunBudget(b),
         reflection: b.reflection === "scripted" ? "scripted" : "gateway",
         baseUrl: `${req.protocol}://${req.headers.host}`,
-        timeoutMs: b.timeout_ms ? Number(b.timeout_ms) : undefined,
+        timeoutMs: b.timeout_ms ? Math.min(Number(b.timeout_ms), 30 * 60_000) : undefined,
         taskpackId: b.taskpack_id ? String(b.taskpack_id) : undefined,
       });
       return reply.code(202).send(res);
@@ -770,13 +822,14 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         token,
         callSeq: Number(b.call_seq ?? 0),
         messages: Array.isArray(b.messages) ? b.messages : [],
-        maxTokens: b.max_tokens ? Number(b.max_tokens) : undefined,
+        maxTokens: Math.min(Math.max(Number(b.max_tokens ?? 2048) || 2048, 1), 8192),
         temperature: b.temperature ?? undefined,
       });
       return res;
     } catch (err) {
       if (err instanceof BudgetExceededError) return reply.code(402).send({ error: err.message });
       if (err instanceof OptimizerAuthError) return reply.code(401).send({ error: err.message });
+      if (err instanceof IdempotencyConflictError) return reply.code(409).send({ error: "idempotency_key_in_flight", detail: err.message });
       return reply.code(502).send({ error: err instanceof Error ? err.message.slice(0, 300) : String(err) });
     }
   });
@@ -805,10 +858,18 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
 
   app.post("/v1/meta/epoch/settle", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
+    // switching the platform's active optimizer is a kernel-level act: any
+    // member used to be able to settle an epoch with caller-supplied numbers
+    // and an unvalidated challenger id (V27)
+    if (!(await requireAdmin(req, reply))) return;
     const b = req.body as any;
+    const incumbent = String(b.incumbent), challenger = String(b.challenger);
+    if (!isKnownBackend(incumbent) || !isKnownBackend(challenger)) {
+      return reply.code(400).send({ error: "incumbent and challenger must be registered optimizer backends" });
+    }
     try {
       return await svc.optimizer.settleEpochTrial({
-        incumbent: String(b.incumbent), challenger: String(b.challenger),
+        incumbent, challenger,
         incumbentImprovement: Number(b.incumbent_improvement ?? 0),
         challengerImprovement: Number(b.challenger_improvement ?? 0),
         minMargin: Number(b.min_margin ?? 0.05),
@@ -821,7 +882,16 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
   // ---- approvals -------------------------------------------------------------------
   app.get("/v1/approvals", async (req, reply) => {
     if (!(await requireAuth(req, reply))) return;
-    return { approvals: (await svc.db.query("SELECT * FROM approvals WHERE status='PENDING' ORDER BY created_at")).rows };
+    // V20: the pending list used to return EVERY tenant's approvals; scope it
+    // to the caller's goals (admins see all — they are the escalation path)
+    const ownerFilter = req.user!.role === "admin"
+      ? "TRUE"
+      : "EXISTS (SELECT 1 FROM goals g WHERE g.id = a.goal_id AND g.owner_id = $1)";
+    const rows = await svc.db.query(
+      `SELECT a.* FROM approvals a WHERE a.status='PENDING' AND ${ownerFilter} ORDER BY a.created_at`,
+      req.user!.role === "admin" ? [] : [req.user!.id],
+    );
+    return { approvals: rows.rows };
   });
 
   app.post("/v1/approvals/:id/decision", async (req, reply) => {
@@ -830,6 +900,12 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (!["approve", "reject"].includes(decision)) return reply.code(400).send({ error: "decision must be approve|reject" });
     const row = (await svc.db.query("SELECT * FROM approvals WHERE id=$1 FOR UPDATE", [(req.params as any).id])).rows[0];
     if (!row) return reply.code(404).send({ error: "approval not found" });
+    // V20: approving another tenant's goal_revise used to inject a revise
+    // command into THEIR goal — the decision must be the owner's (or admin's)
+    const owner = (await svc.db.query("SELECT owner_id FROM goals WHERE id=$1", [row.goal_id])).rows[0]?.owner_id;
+    if (req.user!.role !== "admin" && owner !== req.user!.id) {
+      return reply.code(404).send({ error: "approval not found" });
+    }
     if (row.status !== "PENDING") return reply.code(409).send({ error: `already ${row.status}` });
     await svc.db.query(
       "UPDATE approvals SET status=$2, decided_by=$3, decided_at=now() WHERE id=$1",
@@ -957,7 +1033,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (!row) return reply.code(404).send({ error: "artifact not found" });
     const buf = await svc.objects.get(row.digest);
     if (!buf) return reply.code(404).send({ error: "object missing" });
-    reply.header("content-type", row.media_type);
+    // same stored-XSS hardening as /v1/artifacts/:digest (V19) — this path
+    // used to return worker-supplied media_type verbatim with no disposition,
+    // so an HTML artifact rendered same-origin in a worker context (V24)
+    const scriptable = /^(text\/html|application\/xhtml|image\/svg)/i.test(row.media_type ?? "");
+    reply.header("content-type", scriptable ? "application/octet-stream" : row.media_type);
+    reply.header("content-disposition", "attachment");
+    reply.header("x-content-type-options", "nosniff");
     reply.header("x-artifact-name", encodeURIComponent(row.name));
     return buf;
   });
@@ -970,13 +1052,35 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     // storing the encoded form used to double-encode names on download (P19)
     let name = String(headers["x-artifact-name"] ?? "unnamed");
     try { name = decodeURIComponent(name); } catch { /* keep raw */ }
+    // V25: attribution headers used to be trusted verbatim — a worker could
+    // file artifacts under ANY goal id and publish scope='global' rows that
+    // every tenant can read. Attributes now derive from the attempt row, and
+    // global scope is not obtainable over the worker plane.
+    const producerRun = String(headers["x-attempt-id"] ?? "external");
+    const scope = String(headers["x-scope"] ?? "task");
+    let goalId: string | null = null;
+    let resolvedScope = "task";
+    if (producerRun !== "external") {
+      const att = (await svc.db.query("SELECT goal_id FROM attempts WHERE id=$1", [producerRun])).rows[0];
+      if (!att) return reply.code(404).send({ error: "unknown attempt for attribution" });
+      goalId = att.goal_id; // authoritative; the x-goal-id header is ignored
+      // a worker running an attempt publishes task-scope deliverables — global
+      // visibility is not obtainable from inside a run (V25)
+      if (scope === "global") {
+        return reply.code(403).send({ error: "attempt-scoped uploads cannot publish global artifacts" });
+      }
+    } else if (scope === "global") {
+      // attribution-free global rows are the operator/seed path (shared
+      // reference data); in production the worker token still gates the route
+      resolvedScope = "global";
+    }
     const res = await svc.attempts.putArtifact({
-      body, name,
-      mediaType: String(headers["x-artifact-media-type"] ?? "application/octet-stream"),
-      producerRun: String(headers["x-attempt-id"] ?? "external"),
-      producerRole: String(headers["x-producer-role"] ?? "worker"),
-      goalId: (headers["x-goal-id"] as string) || null,
-      scope: String(headers["x-scope"] ?? "task"),
+      body, name: name.slice(0, 200),
+      mediaType: String(headers["x-artifact-media-type"] ?? "application/octet-stream").slice(0, 100),
+      producerRun,
+      producerRole: String(headers["x-producer-role"] ?? "worker").slice(0, 40),
+      goalId,
+      scope: resolvedScope,
     });
     return res;
   });
@@ -1007,9 +1111,13 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         return reply.code(409).send({ error: "fencing", reason: "stale fencing token" });
       }
       if (att.model_calls >= 64) return reply.code(429).send({ error: "model call cap reached for this attempt" });
+      // clamp caller-supplied sizes: an unbounded max_tokens reserved and
+      // billed worst-case per call (V23 hardening)
       const result = await svc.llm.call({
         goalId: att.goal_id, attemptId: att.id, scope: "task_execution",
-        messages, tools, maxTokens: Number(max_tokens ?? 2048), temperature: temperature ? Number(temperature) : undefined,
+        messages, tools,
+        maxTokens: Math.min(Math.max(Number(max_tokens ?? 2048) || 2048, 1), 8192),
+        temperature: temperature ? Number(temperature) : undefined,
         idempotencyKey: String(idempotency_key ?? `att_${att.id}_${att.model_calls}_${Date.now()}`),
         actor: { kind: "worker", id: String(worker_id) },
       });
@@ -1017,6 +1125,9 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         return reply.code(402).send({ error: "budget_exceeded", detail: err.detail });
+      }
+      if (err instanceof IdempotencyConflictError) {
+        return reply.code(409).send({ error: "idempotency_key_in_flight", detail: err.message });
       }
       throw err;
     }
@@ -1125,7 +1236,7 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     // business data — now session-gated like every other read (P17)
     if (!(await requireAuth(req, reply))) return;
     const q = async (sql: string) => (await svc.db.query(sql)).rows[0];
-    const [goals, attempts, events, budget, modelCalls, today] = await Promise.all([
+    const [goals, attempts, events, budget, modelCalls, today, roles] = await Promise.all([
       svc.db.query("SELECT state, count(*)::int AS n FROM goals GROUP BY state"),
       svc.db.query("SELECT status, count(*)::int AS n FROM attempts GROUP BY status"),
       q("SELECT count(*)::int AS n, COALESCE(MAX(seq),0)::bigint AS head FROM events"),
@@ -1133,6 +1244,18 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
       q("SELECT COALESCE(sum(model_calls),0)::int AS calls, COALESCE(sum(settled_usd),0)::float AS usd FROM attempts"),
       q(`SELECT COALESCE(sum(settled_usd + reserved_usd + unknown_usd),0)::float AS usd
            FROM budget_reservations WHERE updated_at > now() - interval '24 hours'`),
+      // per-role fleet view (P25 multi-agent monitoring): which agent roles
+      // actually carry work, burn budget, and how often they lose attempts
+      svc.db.query(
+        `SELECT t.role,
+                count(*)::int AS attempts,
+                count(*) FILTER (WHERE a.status='COMMITTED')::int AS committed,
+                count(*) FILTER (WHERE a.status IN ('LOST','RECONCILE_REQUIRED','ABORTED'))::int AS lost,
+                COALESCE(sum(a.model_calls),0)::int AS model_calls,
+                COALESCE(sum(a.settled_usd),0)::float AS settled_usd
+           FROM attempts a JOIN tasks t ON t.id = a.task_id
+          GROUP BY t.role ORDER BY attempts DESC`,
+      ),
     ]);
     return {
       uptime_s: Math.floor(process.uptime()),
@@ -1143,9 +1266,11 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
         calls: Number(modelCalls?.calls ?? 0), cost_usd: Number(modelCalls?.usd ?? 0),
         last_24h_usd: Number(today?.usd ?? 0), daily_cap_usd: svc.config.dailyBudgetUsd || null,
       },
+      roles: roles.rows,
       orchestrator: {
         last_reconcile_at: svc.orchestrator.lastReconcileAt?.toISOString() ?? null,
         reconcile_totals: svc.orchestrator.reconcileCounts,
+        stall_totals: svc.orchestrator.stallCounts,
         last_error: svc.orchestrator.lastError,
       },
     };

@@ -79,14 +79,34 @@ export class BudgetService {
     client: PoolClient,
     reservationId: string,
     actualUsd: number,
+    response?: unknown,
   ): Promise<void> {
     await client.query(
       `UPDATE budget_reservations
           SET settled_usd = $2, reserved_usd = 0, unknown_usd = 0,
-              status = 'settled', updated_at = now()
+              status = 'settled', updated_at = now(),
+              response = COALESCE($3::jsonb, response)
         WHERE id = $1`,
-      [reservationId, actualUsd],
+      [reservationId, actualUsd, response === undefined ? null : JSON.stringify(response)],
     );
+  }
+
+  /**
+   * V23: a caller reusing an idempotency key must get the RECORDED outcome,
+   * never a second billable call whose settlement would overwrite the first.
+   * Returns the stored response when the original call settled; null while the
+   * original is still in flight (caller refuses with a conflict).
+   */
+  async recordedResponse(reservationId: string): Promise<
+    { state: "settled"; response: unknown } | { state: "in_flight" } | { state: "missing" }
+  > {
+    const row = (await this.db.query(
+      "SELECT status, response FROM budget_reservations WHERE id=$1", [reservationId],
+    )).rows[0] as { status: string; response: unknown } | undefined;
+    if (!row) return { state: "missing" };
+    if (row.status === "settled" && row.response != null) return { state: "settled", response: row.response };
+    if (row.status === "released") return { state: "missing" };
+    return { state: "in_flight" };
   }
 
   /**
@@ -117,5 +137,13 @@ export class BudgetService {
         WHERE id=$1`,
       [reservationId],
     );
+  }
+}
+
+/** Reused idempotency key whose original call has not settled yet. */
+export class IdempotencyConflictError extends Error {
+  constructor(public readonly key: string) {
+    super(`idempotency key ${key} is still in flight; use a new key`);
+    this.name = "IdempotencyConflictError";
   }
 }

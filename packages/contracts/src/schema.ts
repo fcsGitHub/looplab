@@ -122,6 +122,21 @@ export const RunSpecSchema = z.object({
     digest: z.string(),
     from_task_key: z.string(),
   })).default([]),
+  /**
+   * A2A handoff (P25): structured predecessor context resolved by the
+   * SCHEDULER at claim time — the RESULT summary (and honest outcome) of each
+   * direct SUCCEEDED predecessor's latest committed attempt. The worker
+   * injects these as system notes so the successor agent knows WHAT the
+   * predecessor delivered and claimed, not just which files exist. This is the
+   * anti-hallucination half of handoff: successors build on recorded claims,
+   * not on guesses about file contents.
+   */
+  handoff_notes: z.array(z.object({
+    from_task_key: z.string(),
+    from_role: z.string(),
+    outcome: z.string(),
+    summary: z.string(),
+  })).default([]),
 });
 export type RunSpec = z.infer<typeof RunSpecSchema>;
 

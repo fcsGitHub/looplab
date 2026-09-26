@@ -143,6 +143,36 @@ export class Scheduler {
     return res.rows.map((r: any) => ({ name: String(r.name), digest: String(r.digest), from_task_key: String(r.from_task_key) }));
   }
 
+  /**
+   * A2A handoff notes (P25): the recorded RESULT summary + honest outcome of
+   * each SUCCEEDED predecessor's latest COMMITTED attempt. Read from the
+   * attempts ledger (summaries are stored at commit), capped per task.
+   */
+  private async resolveHandoffNotes(client: any, task: any): Promise<Array<{ from_task_key: string; from_role: string; outcome: string; summary: string }>> {
+    if (!task.depends_on?.length) return [];
+    const res = await client.query(
+      `SELECT DISTINCT ON (d.node_key) d.node_key AS from_task_key, d.role AS from_role, a.summary
+         FROM tasks d
+         JOIN LATERAL (
+           SELECT a.summary FROM attempts a
+            WHERE a.task_id = d.id AND a.status = 'COMMITTED'
+            ORDER BY a.ended_at DESC NULLS LAST LIMIT 1
+         ) a ON TRUE
+        WHERE d.goal_id = $1 AND d.node_key = ANY($2) AND d.state = 'SUCCEEDED'
+        ORDER BY d.node_key`,
+      [task.goal_id, task.depends_on],
+    );
+    return res.rows
+      .filter((r: any) => String(r.summary ?? "").trim().length > 0)
+      .slice(0, 8)
+      .map((r: any) => ({
+        from_task_key: String(r.from_task_key),
+        from_role: String(r.from_role ?? ""),
+        outcome: "SUCCEEDED",
+        summary: String(r.summary).slice(0, 600),
+      }));
+  }
+
   private async maybeWaitForResource(client: any, goalId: string) {
     // flip ACTIVE -> WAITING_RESOURCE once; reversible when budget frees up
     await client.query(
@@ -212,6 +242,8 @@ export class Scheduler {
       // cross-attempt propagation (ledger #5): resolve predecessor deliverables
       // so successors start with their inputs materialized in the workspace
       propagated_artifacts: await this.resolvePredecessorArtifacts(client, task),
+      // A2A handoff: predecessor RESULT summaries as structured context
+      handoff_notes: await this.resolveHandoffNotes(client, task),
     });
     const specDigest = createHash("sha256").update(JSON.stringify(spec)).digest("hex");
 
@@ -278,17 +310,10 @@ export class Scheduler {
       if (goalState === "CANCELLED") {
         return { action: "abort" as const, reason: "CANCELLED", pending_steers: [] };
       }
-      const steers = await client.query(
-        `UPDATE steers SET status='PENDING' WHERE goal_id=$1 AND attempt_id=$2 AND status='PENDING' RETURNING id, content`,
-        // note: we don't mark delivered here; worker confirms delivery
+      const steers = (await client.query(
+        "SELECT id, content FROM steers WHERE goal_id=$1 AND attempt_id=$2 AND status='PENDING' ORDER BY created_at",
         [att.goal_id, attemptId],
-      ).then(async (r: any) => {
-        void r;
-        return (await client.query(
-          "SELECT id, content FROM steers WHERE goal_id=$1 AND attempt_id=$2 AND status='PENDING' ORDER BY created_at",
-          [att.goal_id, attemptId],
-        )).rows;
-      });
+      )).rows;
       return { action: "continue" as const, reason: null as string | null, pending_steers: steers };
     });
   }

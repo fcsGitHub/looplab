@@ -204,7 +204,10 @@ export class PiAttemptExecutor {
       gateway,
       initialUserPrompt: `请开始执行任务：${this.spec.task_title}` +
         (propagated.length ? `
-[系统] 前序任务交付物已放入工作区：${propagated.join(", ")}` : ""),
+[系统] 前序任务交付物已放入工作区：${propagated.join(", ")}` : "") +
+        // A2A handoff notes: recorded predecessor claims, not guessed contents
+        (this.spec.handoff_notes ?? []).map((n) => `
+[交接·来自前序任务 ${n.from_task_key}（${n.from_role}，${n.outcome}）] ${n.summary}`).join(""),
       onEvent,
       onReady: (a) => { live = a; agentRef.agent = a; },
     });
