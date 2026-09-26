@@ -9,7 +9,7 @@ const UNIQ = Date.now().toString(36);
 test.describe.configure({ mode: "serial" });
 
 test("main path: register, create session, send goal, observe live execution", async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(1140_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(BASE);
 
@@ -55,6 +55,31 @@ test("main path: register, create session, send goal, observe live execution", a
   await page.getByRole("tab", { name: /证据与资产/ }).click();
   await expect(page.locator(".ws-body, .empty").first()).toBeVisible({ timeout: 20_000 });
   await page.screenshot({ path: "docs/evidence/e2e/04-evidence.png" });
+
+  // P23: hold the main path open until the goal ACTUALLY completes — the
+  // chain only counts when the real model, real worker and verify node all
+  // finish (previously the e2e stopped mid-execution). A strict verify node
+  // may park the goal behind a goal_revise approval (diagnosis gate): approve
+  // it from the UI (at most twice) and keep waiting for COMPLETED.
+  await page.getByRole("tab", { name: /当前工作/ }).click();
+  let approvalsClicked = 0;
+  await expect
+    .poll(async () => {
+      const done = await page
+        .locator(".state-chip.completed, .state-chip:has-text('COMPLETED')")
+        .count();
+      if (done > 0) return "completed";
+      if (approvalsClicked < 2) {
+        const approveBtn = page.locator(".approval-strip .approval-item").first().getByRole("button", { name: "批准" });
+        if ((await approveBtn.count()) > 0) {
+          await approveBtn.click();
+          approvalsClicked++;
+        }
+      }
+      return "pending";
+    }, { timeout: 960_000, intervals: [5_000] })
+    .toBe("completed");
+  await page.screenshot({ path: "docs/evidence/e2e/05-completed.png", fullPage: false });
 });
 
 test("unauthenticated SSE is rejected (no event leak)", async ({ request }) => {

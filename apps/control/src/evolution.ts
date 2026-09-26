@@ -10,6 +10,7 @@ import { EventStore } from "./eventstore.js";
 import { LlmGateway } from "./llmgateway.js";
 import { EvalBroker } from "./evalbroker.js";
 import { ReleaseService, ReleaseBlockedError, ReleaseConflictError } from "./releases.js";
+import { taskpackPath } from "./taskpackpath.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 
@@ -79,8 +80,11 @@ export class EvolutionService {
   async proposeChange(input: { goalId: string; problemId: string; taskpackId: string; allowedPath: string; baselinePath?: string }): Promise<ProposalRecord | null> {
     const problem = (await this.db.query("SELECT * FROM problems WHERE id=$1", [input.problemId])).rows[0];
     if (!problem) return null;
+    // contained read (V18): taskpackId/baselinePath arrive over HTTP — an
+    // unchecked join read arbitrary files (config/.env.local included) into
+    // the proposer prompt
     const baseline = readFileSync(
-      path.join(this.config.dataDir, "taskpacks", input.taskpackId, input.baselinePath ?? "baseline.py"), "utf8",
+      taskpackPath(this.config.dataDir, input.taskpackId, input.baselinePath ?? "baseline.py"), "utf8",
     );
 
     const result = await this.llm.call({
@@ -208,11 +212,18 @@ export class EvolutionService {
       return { verdict: "REJECTED", final: dev };
     }
 
-    const selection = await this.evalBroker.runEvaluation({
-      candidateId: input.candidateId, candidateArtifactDigest: cand.digest,
-      goalId: input.goalId, taskpackId: input.taskpackId, layer: "selection",
-      contractVersion: input.contractVersion, budgetUsd: 0,
-    });
+    let selection: EvaluationResult;
+    try {
+      selection = await this.evalBroker.runEvaluation({
+        candidateId: input.candidateId, candidateArtifactDigest: cand.digest,
+        goalId: input.goalId, taskpackId: input.taskpackId, layer: "selection",
+        contractVersion: input.contractVersion, budgetUsd: 0,
+      });
+    } catch (err) {
+      // a crashed selection run must not leave the candidate stuck EVALUATING
+      await this.setStatus(input.candidateId, "REJECTED", `selection evaluation failed: ${err instanceof Error ? err.message.slice(0, 200) : err}`);
+      return { verdict: "REJECTED", final: null };
+    }
     if (!selection.hard_constraints.every((h) => h.passed) || selection.verdict === "REJECTED") {
       await this.setStatus(input.candidateId, "REJECTED", `selection: ${selection.reason}`);
       return { verdict: "REJECTED", final: selection };
@@ -223,11 +234,17 @@ export class EvolutionService {
       return { verdict: "INCONCLUSIVE", final: selection };
     }
 
-    const release = await this.evalBroker.runEvaluation({
-      candidateId: input.candidateId, candidateArtifactDigest: cand.digest,
-      goalId: input.goalId, taskpackId: input.taskpackId, layer: "release",
-      contractVersion: input.contractVersion, budgetUsd: 0,
-    });
+    let release: EvaluationResult;
+    try {
+      release = await this.evalBroker.runEvaluation({
+        candidateId: input.candidateId, candidateArtifactDigest: cand.digest,
+        goalId: input.goalId, taskpackId: input.taskpackId, layer: "release",
+        contractVersion: input.contractVersion, budgetUsd: 0,
+      });
+    } catch (err) {
+      await this.setStatus(input.candidateId, "REJECTED", `release evaluation failed: ${err instanceof Error ? err.message.slice(0, 200) : err}`);
+      return { verdict: "REJECTED", final: null };
+    }
     if (release.verdict === "ELIGIBLE") {
       await this.setStatus(input.candidateId, "ELIGIBLE", "passed dev/selection/release with hard constraints");
       return { verdict: "ELIGIBLE", final: release };

@@ -1,6 +1,6 @@
 {
-  "manifest_version": "14",
-  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview + A31 plan isolation, async research runner, planner throttle (+ fixed broken runner file)",
+  "manifest_version": "15",
+  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview + A31 plan isolation, async research runner, planner throttle (+ fixed broken runner file) + A32 taskpack path containment + full-completion e2e",
   "goal": "IMPLEMENTATION_GOAL.md",
   "test_root": "tests/",
   "evidence_root": "docs/evidence/",
@@ -331,6 +331,19 @@
         "apps/control/src/routes/index.ts (planScope/runRunner/plannerLimiter)",
         "taskpacks/computational-research/experiment.py (py_compile OK)",
         "docs/evidence/p22-round/ (证据归档)"
+      ]
+    },
+    {
+      "id": "A32",
+      "scenario": "TaskPack 路径收口（V18 任意读 + 可信层代码执行链）+ e2e 主路径延长到目标真实 COMPLETED",
+      "expected": "taskpackId/baselinePath 经 assertSafeTaskpackId/RelPath + taskpackPath 收口校验（穿越/绝对路径/非法 id 全拒）；propose 不再能把任意文件读进 LLM 提示词；EvalBroker 的 evaluator.py 解析收口（工作区 agent 无法让可信层执行自己写的 python）；selection/release 评测崩溃转为诚实 REJECTED（候选不再卡 EVALUATING）；官方 e2e 等待真实 COMPLETED，verify 停滞时经 UI 审批按钮批准并自动修订",
+      "test": "tests/integration/a32-taskpack-containment.test.ts (3) + tests/e2e/main-path.spec.ts (真实浏览器+真实模型全链)",
+      "requires_real_llm": true,
+      "status": "PASS",
+      "evidence": [
+        "apps/control/src/taskpackpath.ts",
+        "apps/control/src/evolution.ts (contained reads + eval crash handling)",
+        "apps/control/src/evalbroker.ts (suite/evaluator containment)"
       ]
     }
   ],

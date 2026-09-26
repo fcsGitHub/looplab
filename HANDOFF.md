@@ -1,5 +1,25 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-26 03:20（P23 TaskPack 路径收口 + 全链 e2e 轮）· 分支：`main`
+
+## 本轮新增：P23 — V18 任意读/可信层执行链 + e2e 全链化（2026-09-26）
+
+### 漏洞修复
+
+| # | 缺陷 | 修复 | 验证 |
+|---|---|---|---|
+| V18 | **TaskPack 路径穿越**（evolution + EvalBroker）：propose 用未校验的 taskpackId/baselinePath 拼路径读文件——`taskpackId="../../config", baselinePath=".env.local"` 可把服务器密钥读进 LLM 提示词并经提案事件外带；更重：EvalBroker 用 taskpackId 定位 evaluator.py——工作区沙箱内的 agent 可写 `evil.py/evaluator.py` 再以穿越 id 让**可信层执行它**（沙箱逃逸链） | 新增 `taskpackpath.ts`（id 白名单字符 + 相对路径校验 + resolve 后包含性检查），propose 与 EvalBroker 的 suite/evaluator 解析全部收口 | A32（helper 矩阵 + propose 三组穿越载荷 + evaluate 穿越 id） |
+| + | 候选评测 selection/release 崩溃会把候选永久卡在 EVALUATING | 与 dev 同样 try→诚实 REJECTED + 状态历史 | 代码级 |
+
+### e2e 全链化
+
+官方 main-path e2e 此前在执行中途即断言通过。现延长为：等待目标**真实
+COMPLETED**（≤600s 轮询）；若严格 verify 节点触发诊断→审批门（P20），e2e
+经 UI 审批按钮批准（≤2 次）并继续等待——完整覆盖「执行→停滞→审批→自动
+修订→完成」真实用户旅程。历史证据：停滞 e2e 目标经批准后 COMPLETED（$0.1378）。
+
+---
+
 更新时间：2026-09-26 02:20（P22 计划端点修复轮）· 分支：`main`
 
 ## 本轮新增：P22 — 研究 run 端点三重修复（2026-09-26）

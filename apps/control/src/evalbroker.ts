@@ -10,6 +10,7 @@ import { EventStore } from "./eventstore.js";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 import { infraEnv } from "./childenv.js";
+import { taskpackPath } from "./taskpackpath.js";
 
 export interface EvalRequest {
   candidateId: string;
@@ -27,13 +28,15 @@ export class EvalBroker {
   suitePath(taskpackId: string, layer: "dev" | "selection" | "release"): string {
     if (layer === "release") {
       // sealed:// — resolved only here; candidates/worker sandboxes never get this path
-      const p = path.join(this.config.sealedDir, taskpackId, "release-suite.json");
+      const p = path.resolve(this.config.sealedDir, taskpackId, "release-suite.json");
+      const sealedBase = path.resolve(this.config.sealedDir);
+      if (!p.startsWith(sealedBase + path.sep)) throw new Error(`unsafe taskpack id: ${taskpackId}`);
       if (!existsSync(p)) {
         throw new Error(`sealed release suite missing for ${taskpackId}; run scripts/seal-suites.ts to provision`);
       }
       return p;
     }
-    const p = path.join(this.config.dataDir, "taskpacks", taskpackId, `${layer}-suite.json`);
+    const p = taskpackPath(this.config.dataDir, taskpackId, `${layer}-suite.json`);
     if (!existsSync(p)) {
       throw new Error(`suite missing: ${p}`);
     }
@@ -61,7 +64,10 @@ export class EvalBroker {
     mkdirSync(path.dirname(candidateFile), { recursive: true });
     writeFileSync(candidateFile, content);
 
-    const evaluatorScript = path.resolve(this.config.dataDir, "taskpacks", req.taskpackId, "evaluator.py");
+    // contained resolution (V18): an unchecked taskpackId here let a
+    // workspace-sandboxed agent execute attacker-written python in the
+    // TRUSTED evaluator tier by pointing the id at its own workspace
+    const evaluatorScript = taskpackPath(this.config.dataDir, req.taskpackId, "evaluator.py");
     if (!existsSync(evaluatorScript)) throw new Error(`evaluator missing: ${evaluatorScript}`);
 
     const result = await this.spawnEvaluator({
