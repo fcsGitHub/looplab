@@ -80,6 +80,20 @@ describe("A35 stall watchdog", () => {
     await watchdog.tick();
     goal = (await db.query("SELECT state FROM goals WHERE id=$1", [goal3])).rows[0];
     expect(goal.state).toBe("ACTIVE");
+
+    // dependency deadlock: t2 is READY but parked behind a WAITING predecessor
+    // with no diagnosis task anywhere — state says "ready", the scheduler can
+    // never claim it. This was the invisible stall shape before the predicate
+    // learned about dependencies.
+    const { goalId: goal4 } = await makeGoal(`a35-dead-${randomBytes(3).toString("hex")}`, [
+      { key: "t1" }, { key: "t2", depends_on: ["t1"] },
+    ]);
+    await db.query(`UPDATE tasks SET state='WAITING', failure_count=3 WHERE goal_id=$1 AND node_key='t1'`, [goal4]);
+    await watchdog.tick();
+    await watchdog.tick();
+    goal = (await db.query("SELECT state, paused_reason FROM goals WHERE id=$1", [goal4])).rows[0];
+    expect(goal.state).toBe("BLOCKED_INPUT");
+    expect(goal.paused_reason).toBe("stalled_no_progress");
   });
 });
 

@@ -127,6 +127,10 @@ export class Orchestrator {
   }
 
   private async runStallWatchdog(): Promise<void> {
+    // claimability mirrors scheduler.claim exactly, INCLUDING dependency
+    // satisfaction: a READY task parked behind a WAITING predecessor (the
+    // classic post-diagnosis deadlock) is not claimable even though its state
+    // says READY
     const stalled = await this.db.query(
       `SELECT g.id, g.title,
               (SELECT count(*)::int FROM tasks t WHERE t.goal_id=g.id AND t.state='WAITING') AS waiting_tasks,
@@ -136,7 +140,12 @@ export class Orchestrator {
         WHERE g.state='ACTIVE'
           AND NOT EXISTS (
             SELECT 1 FROM tasks t WHERE t.goal_id=g.id
-              AND (t.state IN ('READY','RUNNING') OR (t.state='FAILED' AND t.failure_count < 3)))
+              AND (t.state IN ('READY','RUNNING') OR (t.state='FAILED' AND t.failure_count < 3))
+              AND NOT EXISTS (
+                SELECT 1 FROM tasks d
+                 WHERE d.goal_id = t.goal_id
+                   AND d.node_key = ANY (t.depends_on)
+                   AND d.state NOT IN ('SUCCEEDED','CANCELLED','ABORTED')))
           AND NOT EXISTS (
             SELECT 1 FROM attempts a WHERE a.goal_id=g.id
               AND a.status IN ('LEASED','STARTED','RUNNING','RESULT_PENDING'))
