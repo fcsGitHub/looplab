@@ -1,6 +1,6 @@
 {
-  "manifest_version": "15",
-  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview + A31 plan isolation, async research runner, planner throttle (+ fixed broken runner file) + A32 taskpack path containment + full-completion e2e",
+  "manifest_version": "16",
+  "design_baseline": "SELF_IMPROVING_AGENT_DESIGN.md (§21.2, A01-A18) + A19 OptimizerPort/epoch + A20 revise affected-subgraph + A21 artifact propagation + A22 priority scheduling + A23 SSE restart reconnect + A24 RESULT settlement policy + A25 third optimizer backend (OpenEvolve) + A26 security hardening (worker-plane token, read isolation, login throttle, CORS allowlist) + A27 observability (worker registry, daily spend fuse) + A28 run-report export, worker runtime self-report, spawn-env allowlist + A29 diagnosis→approval→auto-revise loop + A30 SSE owner scoping + approval UI actions + goals overview + A31 plan isolation, async research runner, planner throttle (+ fixed broken runner file) + A32 taskpack path containment + full-completion e2e + A33 artifact download hardening (stored-XSS) + worker shared-env loader & loud auth failure",
   "goal": "IMPLEMENTATION_GOAL.md",
   "test_root": "tests/",
   "evidence_root": "docs/evidence/",
@@ -11,7 +11,7 @@
     "BLOCKED",
     "NOT_RUN"
   ],
-  "last_full_run": "2026-09-25 (74 passed / 2 skipped)",
+  "last_full_run": "2026-09-26 (109 passed / 2 skipped)",
   "cases": [
     {
       "id": "A01",
@@ -344,6 +344,19 @@
         "apps/control/src/taskpackpath.ts",
         "apps/control/src/evolution.ts (contained reads + eval crash handling)",
         "apps/control/src/evalbroker.ts (suite/evaluator containment)"
+      ]
+    },
+    {
+      "id": "A33",
+      "scenario": "工件下载加固（V19 存储型 XSS）+ worker 共享密钥装载与显式鉴权失败",
+      "expected": "工件字节是不可信的 worker/模型输出且工作台新标签页直接打开（与会话 Cookie 同源）：text/html/xhtml/svg 下载一律降级为 application/octet-stream 并强制 Content-Disposition: attachment + X-Content-Type-Options: nosniff；下载文件名清洗（穿越/引号/控制字符/点串），良性类型保留。worker 进程自行发现并加载 apps/control/config/.env.local（进程 env 优先），claim 收到 401/403 立即响亮退出而不是无限静默轮询",
+      "test": "tests/integration/a33-artifact-download-hardening.test.ts (4) + 活体验证（真实服务上传 text/html 工件，响应头验证 octet-stream/attachment/nosniff）",
+      "requires_real_llm": false,
+      "status": "PASS",
+      "evidence": [
+        "apps/control/src/routes/index.ts (artifact download hardening)",
+        "workers/agent-worker/src/index.ts (shared env loader + claim fail-fast)",
+        "packages/llm/src/index.ts (默认 180s 超时，悬挂连接不再卡死单线程 worker)"
       ]
     }
   ],

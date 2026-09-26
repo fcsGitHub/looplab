@@ -458,7 +458,17 @@ export function registerRoutes(app: FastifyInstance, svc: ControlServices) {
     if (row.goal_id && !(await goalScope(req, reply, row.goal_id))) return;
     const buf = await svc.objects.get(row.digest);
     if (!buf) return reply.code(404).send({ error: "object missing" });
-    reply.header("content-type", row.media_type);
+    // Stored-XSS hardening (V19): artifact bytes are untrusted worker/model
+    // output and the workbench opens downloads in a new tab. Scriptable media
+    // types must never render on the API origin (same origin as the session
+    // cookie), so they download as opaque bytes with sniffing disabled.
+    const scriptable = /^(text\/html|application\/xhtml|image\/svg)/i.test(row.media_type ?? "");
+    const safeName = String(row.name ?? "artifact")
+      .replace(/[^\w. ()\-\u4e00-\u9fff]+/g, "_").replace(/\.{2,}/g, "_").replace(/^\.+/, "_")
+      .slice(0, 120) || "artifact";
+    reply.header("content-type", scriptable ? "application/octet-stream" : row.media_type);
+    reply.header("content-disposition", `attachment; filename="${safeName}"`);
+    reply.header("x-content-type-options", "nosniff");
     reply.header("x-artifact-digest", row.digest);
     return buf;
   });

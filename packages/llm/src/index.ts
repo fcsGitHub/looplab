@@ -57,6 +57,10 @@ export class DeepSeekClient {
     temperature?: number;
     signal?: AbortSignal;
   }): Promise<ChatResult> {
+    // default 180s ceiling: a hung connection must not stall a single-threaded
+    // worker forever (P23). Callers may pass their own signal.
+    const timeout = AbortSignal.timeout(180_000);
+    const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
     const res = await this.fetchImpl(`${this.opts.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -70,7 +74,7 @@ export class DeepSeekClient {
         max_tokens: input.max_tokens ?? 2048,
         temperature: input.temperature ?? 0.7,
       }),
-      signal: input.signal,
+      signal,
     });
     if (!res.ok) {
       throw new LlmHttpError(res.status, await res.text());

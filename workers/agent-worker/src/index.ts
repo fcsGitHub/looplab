@@ -1,7 +1,7 @@
 // Worker daemon: claims attempts, runs bounded agent loops, commits results.
 // Multiple workers can run concurrently; the control service is the single
 // scheduling authority (leases + fencing make duplicate claims harmless).
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { RunSpec } from "@looplab/contracts";
@@ -14,6 +14,28 @@ import { PiAttemptExecutor } from "./pi-executor.js";
 // P15 — it passed the contract tests first (P9), a real-model smoke, and
 // live production verification (P10); settlement parity landed in P14.
 // RUNTIME=loop explicitly selects the built-in loop runtime (rollback path).
+// The worker plane shares WORKER_TOKEN with the control service. The worker
+// keeps no config of its own — it reads the same gitignored
+// apps/control/config/.env.local, discovered by walking up from the CWD, so
+// an operator maintains exactly one secret file. Process env always wins.
+function loadSharedEnvFile(): void {
+  let dir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    const p = path.join(dir, "apps", "control", "config", ".env.local");
+    if (existsSync(p)) {
+      for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
+        const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+        if (m?.[1] && m[2] !== undefined && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
+      }
+      return;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+}
+loadSharedEnvFile();
+
 const RUNTIME = process.env.RUNTIME ?? "pi";
 const WORKER_VERSION = "2"; // claim-payload schema for runtime self-report
 
@@ -35,6 +57,12 @@ async function main() {
     let job: { attempt: any; spec: RunSpec } | null = null;
     try {
       const res = await client.claim(WORKER_ID, { runtime: RUNTIME, version: WORKER_VERSION });
+      if (res.status === 401 || res.status === 403) {
+        // A token mismatch will never heal on its own; spinning silently here
+        // makes the worker look alive while it does nothing. Stop loudly.
+        console.error(`[worker ${WORKER_ID}] claim rejected (${res.status}): worker-plane token missing or wrong. Fix WORKER_TOKEN (apps/control/config/.env.local) and restart.`);
+        process.exit(1);
+      }
       if (res.status === 200 && res.json) job = res.json;
     } catch (err) {
       console.error(`[worker ${WORKER_ID}] claim failed: ${err instanceof Error ? err.message : err}`);
