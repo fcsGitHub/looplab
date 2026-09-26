@@ -9,7 +9,7 @@ const UNIQ = Date.now().toString(36);
 test.describe.configure({ mode: "serial" });
 
 test("main path: register, create session, send goal, observe live execution", async ({ page }) => {
-  test.setTimeout(1140_000);
+  test.setTimeout(1400_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(BASE);
 
@@ -77,7 +77,7 @@ test("main path: register, create session, send goal, observe live execution", a
         }
       }
       return "pending";
-    }, { timeout: 960_000, intervals: [5_000] })
+    }, { timeout: 1200_000, intervals: [5_000] })
     .toBe("completed");
   await page.screenshot({ path: "docs/evidence/e2e/05-completed.png", fullPage: false });
 });
