@@ -1,5 +1,24 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-09-27（P25 补遗 II：宿主级自愈栈）· 分支：`main`
+
+## P25 补遗 II：宿主自愈栈（2026-09-27 第二次夜间坍塌后）
+
+补遗 I 的 V28 修复当晚再次经受实战：Docker Desktop/WSL 又自行停止（机器未重启），
+这次池错误被正确处理、带 nonce 记录（进程未因未处理错误崩溃），但后台进程仍随会话
+被回收。结论：单靠进程内修复不够，宿主层需要自愈。现已部署四层防线：
+
+1. 进程内（V28 池韧性 + worker 瞬断重试，既有）
+2. `scripts/dev-stack.mjs` 子进程监督（封顶退避重启 control/worker）
+3. `looplab-pg` 容器 `restart=unless-stopped`
+4. 计划任务 `LoopLabStack`（用户级免提权，每 3 分钟重拉 supervisor；实例经互斥端口
+   47613 去重；Docker 守护进程不在时自动启动 Docker Desktop）
+
+活体验证：树杀 control 子进程 → supervisor 自动重启并重新监听 :8080；注册/移除
+命令与设计细节见 `docs/runbooks/operations.md` §7。
+
+---
+
 更新时间：2026-09-27（P25 补遗：DB 池韧性）· 分支：`main`
 
 ## P25 补遗：控制进程因 PG 维护崩溃（V28，2026-09-27 活体发现并修复）

@@ -75,3 +75,28 @@ python -m venv .venv-gepa; .venv-gepa/Scripts/pip install gepa==0.1.4
 - 单机部署：worker 与控制服务同 OS 用户；语言级沙箱 ≠ 内核级沙箱。
 - 72h soak（A17）需要 `npx tsx tests/soak/soak.ts --duration 72h` 且有外部
   断言检查；当前证据仅含短时运行（见 docs/evidence/soak 报告的 run_kind）。
+
+## 7. 本机自愈栈（P25，宿主可靠性）
+
+本开发机曾两度在无人值守时整栈坍塌（Docker Desktop/WSL 自行停止 → 控制服务失去
+Postgres；后台进程被会话回收）。现行四层自愈：
+
+1. **进程内**（代码）：pg 池 `error` 处理器（V28，PG 维护杀连接不再崩进程）；
+   worker 对控制服务瞬断自动重试；租约/SSE 重连既有机制。
+2. **子进程**：`scripts/dev-stack.mjs` 以封顶退避重启 control/worker 子进程。
+3. **容器**：`looplab-pg` 已设 `restart=unless-stopped`（Docker 守护进程恢复即自启）。
+4. **守护者**：supervisor 本身若死，计划任务每 3 分钟重拉（实例互斥端口 47613，
+   存活时新实例立即退出）；Docker 守护进程不在时自动启动 Docker Desktop。
+
+运维命令：
+
+```
+npm run dev:stack                        # 手动前台运行（观察日志用）
+tail -f data/stack-supervisor.log        # 栈日志（含子进程输出）
+schtasks /Create /TN LoopLabStack /TR "D:\project\looplab\scripts\stack-task.cmd" /SC MINUTE /MO 3 /F   # 注册（用户级免提权）
+schtasks /Run   /TN LoopLabStack         # 立即触发一次
+schtasks /Delete /TN LoopLabStack /F     # 移除守护
+```
+
+验证记录（2026-09-27）：树杀 control 子进程 → supervisor 2 秒内自动重启并重新监听；
+故障注入与恢复全程 worker 仅瞬时 claim 失败后自愈。

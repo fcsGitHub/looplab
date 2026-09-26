@@ -17,6 +17,7 @@
     "test": "vitest run tests/unit tests/contract tests/integration",
     "dev:control": "tsx apps/control/src/index.ts",
     "dev:worker": "tsx workers/agent-worker/src/index.ts",
+    "dev:stack": "node scripts/dev-stack.mjs",
     "dev:web": "npm run dev --prefix apps/web",
     "start": "npm run build && npx tsx apps/control/src/index.ts"
   },
