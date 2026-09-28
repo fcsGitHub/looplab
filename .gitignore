@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.*
+*.local
 *.log
 data/
 .artifacts/
@@ -10,13 +12,16 @@ __pycache__/
 *.pyc
 pgdata/
 keys.txt
-.env.local
 config/.env.local
 sealed/
 .playwright-mcp/
 
-# optimizer backend venv
-.venv-gepa/
+# python venvs (optimizer backends)
+.venv*/
 
 # typescript build info
 *.tsbuildinfo
+
+# os/editor artifacts
+.DS_Store
+Thumbs.db

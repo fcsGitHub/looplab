@@ -13,8 +13,8 @@
    │  REST /v1 + SSE /v1/events（游标续传、按 event_id 去重）
 控制服务 (Fastify, apps/control)  ── 唯一调度权威：租约 + fencing token + 预算 + 发布门
    │  RunSpec（冻结）              │ LLM 网关：预留→真实调用→结算（密钥不出服务）
-Worker (workers/agent-worker)   ── 有界 agent 循环 + 工具网关（Python 审计钩子沙箱）
-   │
+Worker (workers/agent-worker)   ── Pi 运行时（默认）+ 有界 agent 循环 + 工具网关（沙箱）
+   │  RUNTIME=loop 可回退到内置循环
 评测 (taskpacks/*/evaluator.py) ── dev/selection 公共套件 + sealed:// 发布套件（独立进程）
 ```
 
@@ -39,14 +39,16 @@ printf 'DEEPSEEK_API_KEY=sk-xxx\nWORKER_TOKEN=%s\n' "$(node -e "console.log(requ
 npm install
 npx tsx scripts/seal-suites.ts
 
-# 4) 启动：控制服务（:8080，同时托管前端构建产物）
-npx tsx apps/control/src/index.ts          # http://localhost:8080
+# 4) 一条命令拉起整栈（推荐）：自愈 supervisor 会确保 Docker/Postgres 就绪，
+#    并以有界指数退避守护控制服务与 worker；日志见 data/stack-supervisor.log
+npm run dev:stack                               # http://localhost:8080
 
-# 5) 启动一个 worker（可多个；调度由控制服务统一裁决；令牌与控制服务一致）
-WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.local | cut -d= -f2) \
-  npx tsx workers/agent-worker/src/index.ts
+#    或手动分别启动：控制服务（:8080，同时托管前端构建产物）
+#    npx tsx apps/control/src/index.ts
+#    WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.local | cut -d= -f2) \
+#      npx tsx workers/agent-worker/src/index.ts
 
-# 6) 浏览器打开 http://localhost:8080，注册首个账号（自动成为管理员），发送目标即可
+# 5) 浏览器打开 http://localhost:8080，注册首个账号（自动成为管理员），发送目标即可
 ```
 
 开发模式前端（热更新）：`npm run dev --prefix apps/web`（Vite 代理 /v1 → :8080）。
@@ -56,10 +58,10 @@ WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.l
 `packages/contracts/src/optimizer.ts` 定义后端注册表、纪元授权守卫与切换裁决
 （严格 margin，平局=证据不足保留现任，递归深度 1）；`apps/control/src/optimizer.ts`
 + `/v1/goals/:id/optimizer/*`、`/v1/meta/epoch*` 为控制面；反射 LLM 经
-计量代理计账（run token 鉴权，模型密钥不出控制进程）。后端 `gepa==0.1.4`
-（`optimizers/gepa-backend/`），真实模型 epoch 试炼与裁决：
-`docs/evidence/optimizer-epoch-trial/TRIAL-VERDICT.md`。现任 simple-baseline@1
-也注册在同一端口上以等协议竞争；任务族可参数化（`TASKPACK=algorithm-search.bin-packing-large`，
+计量代理计账（run token 鉴权，模型密钥不出控制进程）。后端：`gepa==0.1.4`
+（`optimizers/gepa-backend/`）与 OpenEvolve（`optimizers/openevolve-backend/`，
+P16），均经过真实模型 epoch 试炼与裁决，现任 `simple-baseline@1` 注册在同一
+端口上以等协议竞争；任务族可参数化（`TASKPACK=algorithm-search.bin-packing-large`，
 大实例族 seed archive 与小族隔离）。图 revise 按 §六.3 只重跑受影响节点及后继、
 保留有效前缀（A20）。
 
@@ -82,6 +84,18 @@ WORKER_ID=dev-01 WORKER_TOKEN=$(grep '^WORKER_TOKEN=' apps/control/config/.env.l
 - **运行报告**：`GET /v1/goals/:id/report.md`（会话鉴权，属主/admin）从真实事件账本
   导出 Markdown 报告（任务图、执行与花费、时间线、交付物、结论声明）。
 
+## 可靠性（P25）
+
+- **停滞看门狗**：worker 对长时间无进展的 attempt 触发停滞检测，写入 A2A
+  交接纪要并归还队列；claimability 谓词与调度器 `scheduler.claim` 镜像，
+  依赖死锁也能被看见。
+- **自愈栈 supervisor**：`npm run dev:stack`（`scripts/dev-stack.mjs`）单实例
+  守护整栈——确保 Docker 守护进程与 `looplab-pg` 容器在位，控制服务与 worker
+  以有界指数退避自动重启；可注册 Windows 计划任务每 3 分钟拉活
+  （见 `scripts/stack-task.cmd`）。
+- **PG 维护韧性**：pg pool `error` 事件显式处理，控制进程不再因数据库维护
+  崩溃（V28），SSE 客户端可跨控制服务重启续传（A23）。
+
 ## 测试
 
 ```bash
@@ -103,6 +117,7 @@ packages/policy     工具授权 PolicyGate（纯函数）
 packages/llm        DeepSeek 客户端（OpenAI 兼容）
 workers/agent-worker  worker 守护进程 + agent 循环 + 能力网关
 taskpacks/          三个领域包（harness/algorithm/research）合同与评测器
+optimizers/         GEPA / OpenEvolve 优化器后端（OptimizerPort 竞争者）
 tests/              unit / contract / integration / e2e / soak / fault-injection
 docs/               architecture / decisions / runbooks / evidence
 acceptance/         机器可读验收清单（A01–A18）
