@@ -38,8 +38,8 @@ export async function createTestEnv(opts: { leaseTtlMs?: number; deepseekBaseUrl
     deepseek: {
       apiKey: process.env.DEEPSEEK_API_KEY ?? "sk-test-dummy-key-for-non-llm-tests",
       baseUrl: opts.deepseekBaseUrl ?? process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-      chatModel: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat",
-      reasonerModel: "deepseek-reasoner",
+      chatModel: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-flash",
+      reasonerModel: process.env.DEEPSEEK_REASONER_MODEL ?? "deepseek-flash",
     },
   });
 

@@ -239,11 +239,11 @@ describe("A16 model change creates a new frozen RunSpec", () => {
 
     // "upgrade" the model
     const oldModel = env.app.config.deepseek.chatModel;
-    env.app.config.deepseek.chatModel = "deepseek-chat-2027";
+    env.app.config.deepseek.chatModel = "deepseek-flash-2027";
     try {
       const claim2 = await user.post("/v1/worker/claim", { worker_id: "w-env-2" });
       const spec2 = claim2.json().spec;
-      expect(spec2.model.model).toBe("deepseek-chat-2027");
+      expect(spec2.model.model).toBe("deepseek-flash-2027");
       expect(spec2.model.model).not.toBe(spec1.model.model);
       // spec digests differ; the old attempt's frozen spec is still queryable
       expect(spec2.spec_version).toBe(spec1.spec_version);
@@ -251,7 +251,7 @@ describe("A16 model change creates a new frozen RunSpec", () => {
         "SELECT spec FROM attempt_specs WHERE attempt_id=$1", [claim1.json().attempt.id],
       );
       expect(old.rows[0].spec.model.model).toBe(oldModel);
-      expect(old.rows[0].spec.model.model).toBe("deepseek-chat"); // locked env traceable
+      expect(old.rows[0].spec.model.model).toBe("deepseek-flash"); // locked env traceable
     } finally {
       env.app.config.deepseek.chatModel = oldModel;
     }

@@ -28,7 +28,7 @@ beforeAll(async () => {
     req.on("end", () => {
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({
-        id: "chatcmpl-fake", object: "chat.completion", created: Date.now() / 1000, model: "deepseek-chat",
+        id: "chatcmpl-fake", object: "chat.completion", created: Date.now() / 1000, model: "deepseek-flash",
         choices: [{ index: 0, message: { role: "assistant", content: "FAKE-REPLY-" + randomBytes(2).toString("hex") }, finish_reason: "stop" }],
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       }));

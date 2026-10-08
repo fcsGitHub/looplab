@@ -84,17 +84,21 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     deepseek: {
       apiKey,
       baseUrl: env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-      chatModel: env("DEEPSEEK_CHAT_MODEL", "deepseek-chat"),
-      reasonerModel: env("DEEPSEEK_REASONER_MODEL", "deepseek-reasoner"),
+      // deepseek-flash is DeepSeek's official served model id (verified via
+      // GET /models on api.deepseek.com); the legacy deepseek-chat/reasoner
+      // ids no longer resolve there.
+      chatModel: env("DEEPSEEK_CHAT_MODEL", "deepseek-flash"),
+      reasonerModel: env("DEEPSEEK_REASONER_MODEL", "deepseek-flash"),
     },
     workerHeartbeatMs: Number(env("WORKER_HEARTBEAT_MS", "5000")),
     leaseTtlMs: Number(env("LEASE_TTL_MS", "30000")),
     defaultGoalBudgetUsd: Number(env("DEFAULT_GOAL_BUDGET_USD", "5")),
     sessionTtlMs: Number(env("SESSION_TTL_MS", String(7 * 24 * 3600_000))),
-    // DeepSeek official pricing (per 1M tokens): chat $0.27 in / $1.10 out.
-    // Per 1k: 0.00027 / 0.0011.
-    costPer1kPromptUsd: Number(env("COST_PER_1K_PROMPT_USD", "0.00027")),
-    costPer1kCompletionUsd: Number(env("COST_PER_1K_COMPLETION_USD", "0.0011")),
+    // DeepSeek official peak pricing for deepseek-flash (per 1M tokens):
+    // $0.30 in (cache miss) / $1.20 out — peak used as the conservative
+    // worst case. Per 1k: 0.0003 / 0.0012.
+    costPer1kPromptUsd: Number(env("COST_PER_1K_PROMPT_USD", "0.0003")),
+    costPer1kCompletionUsd: Number(env("COST_PER_1K_COMPLETION_USD", "0.0012")),
     optimizerPython: env("OPTIMIZER_PYTHON", path.join(root, ".venv-gepa", "Scripts", "python.exe")),
     workerToken: env("WORKER_TOKEN", ""),
     dailyBudgetUsd: Number(env("DAILY_BUDGET_USD", "0")),

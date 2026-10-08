@@ -386,7 +386,7 @@
     "status": "PASS",
     "recorded": {
       "provider": "deepseek",
-      "model_served": "deepseek-chat",
+      "model_served": "deepseek-flash",
       "usage": "见事件 model.call_completed (prompt/completion tokens + cost_usd)"
     }
   },

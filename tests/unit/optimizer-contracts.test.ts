@@ -41,7 +41,7 @@ describe("complete payload schema", () => {
   it("requires at least one proposal with code", () => {
     const ok = OptimizerCompletePayloadSchema.safeParse({
       proposals: [{ mechanism: "m", candidate_code: "def pack(): ...", changed_summary: "", expected_effect: "", train_score: null, val_score: 0.71 }],
-      usage: { metric_calls: 40, llm_calls: 3, prompt_tokens: 100, completion_tokens: 900, cost_usd: 0.01, model: "deepseek-chat" },
+      usage: { metric_calls: 40, llm_calls: 3, prompt_tokens: 100, completion_tokens: 900, cost_usd: 0.01, model: "deepseek-flash" },
       stopped_reason: "completed",
     });
     expect(ok.success).toBe(true);

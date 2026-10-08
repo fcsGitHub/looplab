@@ -35,12 +35,12 @@ describe("PiLoopRuntime real-model smoke", () => {
 
     let usageTotal = { prompt_tokens: 0, completion_tokens: 0 };
     const runtime = new PiLoopRuntime({
-      model: { provider: "deepseek", id: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat" },
+      model: { provider: "deepseek", id: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-flash" },
       systemPrompt: "你是 LoopLab 的执行器。完成目标后，最后一行输出 RESULT: ok 或 RESULT: failed。",
       maxTurns: 6,
       llmComplete: async (req) => {
         const result = await client.chat({
-          model: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat",
+          model: process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-flash",
           messages: req.messages as any,
           tools: req.tools as any,
           max_tokens: 1024,
