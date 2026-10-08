@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type Attempt, type Candidate, type Message, type Project, type Session, type Task, type WorkCard, type WorkerRow, type GoalListRow, type ApprovalRow } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, type Attempt, type Candidate, type Message, type PlatformEvent, type Project, type Session, type Task, type WorkCard, type WorkerRow, type GoalListRow, type ApprovalRow } from "./api";
 import { useEventStream } from "./useEventStream";
 import { Workspace, Inspector } from "./Workspace";
+import { mergeTimeline, milestoneView, TONE_GLYPH } from "./chat";
 
 type ViewTab = "work" | "runs" | "evolution" | "evidence";
 
@@ -99,6 +100,8 @@ export function App() {
     await loadSession(r.id);
   }, [activeProject, loadSession]);
 
+  const [lastErrorMsg, setLastErrorMsg] = useState<string | null>(null);
+
   const send = useCallback(async (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || !activeSession || sending) return;
@@ -117,8 +120,6 @@ export function App() {
       setSending(false);
     }
   }, [input, activeSession, sending, refreshGoal, activeProject]);
-
-  const [lastErrorMsg, setLastErrorMsg] = useState<string | null>(null);
 
   const pauseResume = useCallback(async () => {
     if (!goalId || !card) return;
@@ -177,6 +178,48 @@ export function App() {
     }
   }, [refreshSidebars, refreshGoal]);
 
+  // 对话流 = 用户消息（DB）+ Agent 里程碑（SSE 事件派生），按时间合并
+  const timeline = useMemo(() => mergeTimeline(messages, stream.events), [messages, stream.events]);
+
+  // 审批卡状态：PENDING 来自 /v1/approvals（该列表只含未裁决行，V20），
+  // 裁决状态来自真实账本事件 approval.granted/rejected（随目标流回放）。
+  const approvalStatus = useMemo(() => {
+    const m = new Map(approvals.map((a) => [a.id, a.status]));
+    for (const e of stream.events) {
+      if (e.event_type === "approval.granted") m.set(e.aggregate_id, "APPROVED");
+      else if (e.event_type === "approval.rejected") m.set(e.aggregate_id, "REJECTED");
+    }
+    return m;
+  }, [approvals, stream.events]);
+
+  // 当前目标调度优先级（1 最急 .. 9 最不急）——来自 /v1/goals 列表真实行
+  const currentPriority = useMemo(
+    () => goalOverview.find((g) => g.id === goalId)?.priority ?? null,
+    [goalOverview, goalId],
+  );
+  const changePriority = useCallback(async (p: number) => {
+    if (!goalId) return;
+    try {
+      await api.command(goalId, "set_priority", { priority: p });
+      await refreshSidebars();
+    } catch (e) {
+      setLastErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }, [goalId, refreshSidebars]);
+
+  // 聊天跟随滚动：用户上滑即暂停跟随，回到底部自动恢复
+  const chatRef = useRef<HTMLDivElement>(null);
+  const chatStick = useRef(true);
+  const timelineLen = timeline.length;
+  useEffect(() => {
+    const el = chatRef.current;
+    if (el && chatStick.current) el.scrollTop = el.scrollHeight;
+  }, [timelineLen]);
+  const onChatScroll = useCallback(() => {
+    const el = chatRef.current;
+    if (el) chatStick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 56;
+  }, []);
+
   if (!user) {
     return (
       <div className="auth-wrap">
@@ -232,6 +275,17 @@ export function App() {
             <span className="budget mono" title={`已用 $${card.budget.used} + 未结算 $${card.budget.unknown} / 上限 $${card.budget.cap}`}>
               ${card.budget.used.toFixed(3)}{card.budget.unknown > 0 ? `(+${card.budget.unknown.toFixed(3)}?)` : ""} / ${card.budget.cap}
             </span>
+          )}
+          {card && (
+            <label className="priority-sel" title="调度优先级：1 最急 .. 9 最不急（抢占更早的积压，同级 FIFO）">
+              <span className="muted small">优先级</span>
+              <select
+                value={currentPriority ?? 5}
+                onChange={(e) => changePriority(Number(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </label>
           )}
           {card && <button onClick={pauseResume}>{card.state === "PAUSED_USER" ? "恢复 (P)" : "暂停 (P)"}</button>}
           {card && <button className="danger" onClick={() => setConfirmCancel(true)}>取消</button>}
@@ -308,6 +362,7 @@ export function App() {
                 >
                   <span className="dot" data-state={g.state} />
                   <span className="side-goal-title">{g.title}</span>
+                  <span className="mono muted small" title={`调度优先级 ${g.priority}`}>P{g.priority}</span>
                   <span className="mono muted small">{g.state.slice(0, 6)}</span>
                 </button>
               ))}
@@ -330,16 +385,26 @@ export function App() {
             </div>
           )}
 
-          <div className="chat" role="log" aria-live="polite">
-            {messages.length === 0 && <div className="empty">发送目标后，Coordinator 会规划任务图并开始执行。</div>}
-            {messages.map((m) => (
-              <div key={m.id} className={`msg ${m.role}`}>
-                <div className="msg-meta">
-                  {m.role === "user" ? "你" : "LoopLab"} · {new Date(m.created_at).toLocaleTimeString("zh-CN", { hour12: false })}
+          <div className="chat" role="log" aria-live="polite" ref={chatRef} onScroll={onChatScroll}>
+            {timeline.length === 0 && <div className="empty">发送目标后，Coordinator 会规划任务图并开始执行。</div>}
+            {timeline.map((entry) =>
+              entry.kind === "user" ? (
+                <div key={entry.id} className={`msg ${entry.role === "user" ? "user" : "agent"}`}>
+                  <div className="msg-meta">
+                    {entry.role === "user" ? "你" : "LoopLab"} · {new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false })}
+                  </div>
+                  <div className="msg-content">{entry.text}</div>
                 </div>
-                <div className="msg-content">{m.content}</div>
-              </div>
-            ))}
+              ) : (
+                <ChatMilestone
+                  key={entry.id}
+                  event={entry.event}
+                  onOpenInspector={setInspector}
+                  approvalStatus={approvalStatus}
+                  onDecideApproval={decideApproval}
+                />
+              ),
+            )}
             {stream.events.filter((e) => e.event_type === "model.call_started").length > 0 && sending === false && runningAttempts.length > 0 && (
               <div className="typing mono">agent 运行中 · 模型调用 {runningAttempts.reduce((a, b) => a + b.model_calls, 0)} 次</div>
             )}
@@ -405,7 +470,7 @@ export function App() {
           <Workspace
             view={view} card={card} tasks={tasks} attempts={attempts}
             candidates={candidates} goalId={goalId} stream={stream}
-            onOpenInspector={setInspector}
+            onOpenInspector={setInspector} userRole={user.role}
           />
         </section>
       </div>
@@ -414,6 +479,7 @@ export function App() {
         <Inspector
           spec={inspector} onClose={() => setInspector(null)}
           card={card} attempts={attempts} tasks={tasks} goalId={goalId} candidates={candidates}
+          onOpenInspector={setInspector}
         />
       )}
 
@@ -432,6 +498,49 @@ export function App() {
         </div>
       )}
       {lastErrorMsg && <div className="toast err" onClick={() => setLastErrorMsg(null)}>{lastErrorMsg}</div>}
+    </div>
+  );
+}
+
+function ChatMilestone({ event, onOpenInspector, approvalStatus, onDecideApproval }: {
+  event: PlatformEvent;
+  onOpenInspector: (s: { kind: string; id: string }) => void;
+  approvalStatus?: Map<string, string>;
+  onDecideApproval?: (id: string, decision: "approve" | "reject") => void;
+}) {
+  const v = milestoneView(event);
+  if (!v) return null;
+  const inspector = event.event_type === "evaluation.completed" && event.payload?.candidate_id
+    ? { kind: "candidate", id: String(event.payload.candidate_id) }
+    : v.inspector;
+  // 审批卡：PENDING 时内联批准/驳回，已裁决后显示真实状态
+  const approvalId = event.event_type === "approval.requested"
+    ? String(event.payload?.approval_id ?? "") : "";
+  const approvalState = approvalId ? approvalStatus?.get(approvalId) ?? "PENDING" : null;
+  return (
+    <div className="msg agent">
+      <div className="msg-meta">LoopLab · {new Date(event.occurred_at).toLocaleTimeString("zh-CN", { hour12: false })}</div>
+      <button
+        className={`data-card ${v.tone} ${inspector ? "link" : ""}`}
+        onClick={inspector ? () => onOpenInspector(inspector) : undefined}
+        disabled={!inspector}
+        title={inspector ? "打开检查器详情" : undefined}
+      >
+        <span className="dc-glyph" aria-hidden="true">{TONE_GLYPH[v.tone]}</span>
+        <span className="dc-main">
+          <span className="dc-head">{v.head}{v.meta && <span className="dc-meta mono"> · {v.meta}</span>}</span>
+          {v.lines.map((l, i) => <span key={i} className="dc-line">{l}</span>)}
+        </span>
+      </button>
+      {approvalId && approvalState === "PENDING" && onDecideApproval && (
+        <div className="ms-approval-actions">
+          <button onClick={() => onDecideApproval(approvalId, "approve")}>批准重规划</button>
+          <button className="ghost" onClick={() => onDecideApproval(approvalId, "reject")}>驳回</button>
+        </div>
+      )}
+      {approvalId && approvalState && approvalState !== "PENDING" && (
+        <div className="ms-approval-done mono small">{approvalState === "APPROVED" ? "已批准" : "已驳回"}</div>
+      )}
     </div>
   );
 }

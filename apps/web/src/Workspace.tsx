@@ -16,8 +16,9 @@ export function Workspace(props: {
   goalId: string | null;
   stream: EventStreamState;
   onOpenInspector: (s: InspectorSpec) => void;
+  userRole?: string;
 }) {
-  const { view, card, tasks, attempts, candidates, goalId, stream, onOpenInspector } = props;
+  const { view, card, tasks, attempts, candidates, goalId, stream, onOpenInspector, userRole } = props;
   if (!goalId || !card) return <div className="empty pad">选择或创建一个会话并发送目标。</div>;
 
   if (view === "work") {
@@ -83,7 +84,7 @@ export function Workspace(props: {
   }
 
   if (view === "evolution") {
-    return <EvolutionView goalId={goalId} candidates={candidates} stream={stream} onOpenInspector={onOpenInspector} />;
+    return <EvolutionView goalId={goalId} candidates={candidates} stream={stream} onOpenInspector={onOpenInspector} userRole={userRole} />;
   }
 
   return <EvidenceView goalId={goalId} onOpenInspector={onOpenInspector} stream={stream} />;
@@ -95,7 +96,7 @@ function EvidenceView({ goalId, onOpenInspector, stream }: { goalId: string; onO
     api.evidence(goalId).then(setEv).catch(() => {});
   }, [goalId, stream.events.length]);
   if (!ev) return <div className="empty pad">加载中…</div>;
-  const nothing = !ev.artifacts.length && !ev.claims.length && !ev.hypotheses.length && !ev.skills.length;
+  const nothing = !ev.artifacts.length && !ev.claims.length && !ev.hypotheses.length && !ev.skills.length && !(ev.memories ?? []).length;
   if (nothing) return <div className="empty pad">暂无证据与资产。</div>;
   return (
     <div className="ws-body">
@@ -129,6 +130,14 @@ function EvidenceView({ goalId, onOpenInspector, stream }: { goalId: string; onO
           <span className="sa-title">{s.name} v{s.version}</span>
         </div>
       ))}
+      {ev.memories.length > 0 && <div className="eyebrow">记忆（真实沉淀，按效用标注）</div>}
+      {ev.memories.map((m) => (
+        <div key={m.id} className="run-row static memory-row" title={`效用：${m.utility}`}>
+          <span className={`state-chip ${m.utility === "helpful" ? "released" : m.utility === "harmful" ? "rejected" : "candidate"}`}>{m.utility}</span>
+          <span className="role-badge" data-role="Curator">{m.kind}</span>
+          <span className="sa-title">{m.content.slice(0, 110)}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -137,6 +146,7 @@ export function Inspector(props: {
   spec: InspectorSpec; onClose: () => void;
   card: WorkCard | null; attempts: Attempt[]; tasks: Task[]; goalId: string | null;
   candidates: Candidate[];
+  onOpenInspector?: (s: InspectorSpec) => void;
 }) {
   const { spec, onClose } = props;
   const [detail, setDetail] = useState<string | null>(null);
@@ -182,12 +192,42 @@ export function Inspector(props: {
         {spec.kind === "task" && (() => {
           const t = props.tasks.find((x) => x.id === spec.id);
           if (!t) return <div className="empty">任务不存在</div>;
+          const taskAttempts = props.attempts.filter((a) => a.task_id === t.id)
+            .sort((a, b) => b.attempt_no - a.attempt_no);
+          const lastFailed = taskAttempts.find((a) => a.error_class);
           return (
             <>
               <Row label="标题">{t.title}</Row>
               <Row label="角色">{t.role} · {t.kind}</Row>
-              <Row label="状态">{t.state}</Row>
+              <Row label="状态">
+                <span className={`state-chip ${t.state.toLowerCase()}`}>{t.state}</span>
+                <span className="mono muted small" style={{ marginLeft: 8 }}>
+                  {t.node_key}{t.graph_version ? ` · 图 ${t.graph_version}` : ""}
+                </span>
+              </Row>
+              <Row label="依赖">
+                {(t.depends_on ?? []).length === 0
+                  ? <span className="muted">无（根节点）</span>
+                  : (t.depends_on ?? []).map((d) => <span key={d} className="dep-chip mono">{d}</span>)}
+              </Row>
               <Row label="重试">{t.failure_count} 次失败 · 访问 {t.visit_count} 次</Row>
+              {lastFailed && (
+                <Row label="最近错误类">
+                  <span className="mono small">{lastFailed.error_class}</span>
+                  <span className="muted small" style={{ marginLeft: 6 }}>· attempt #{lastFailed.attempt_no}</span>
+                </Row>
+              )}
+              <div className="eyebrow" style={{ marginTop: 10 }}>执行尝试（{taskAttempts.length}）</div>
+              {taskAttempts.length === 0 && <div className="muted small">尚未派发</div>}
+              {taskAttempts.map((a) => (
+                <button key={a.id} className="run-row" onClick={() => props.onOpenInspector?.({ kind: "attempt", id: a.id })} title="打开轨迹检查器">
+                  <span className="dot" data-state={a.status === "COMMITTED" ? "SUCCEEDED" : a.status} />
+                  <span className="mono">#{a.attempt_no}</span>
+                  <span className="mono muted">{a.status}</span>
+                  <span className="mono muted small">{a.model_calls} calls · ${(Number(a.settled_usd) || 0).toFixed(4)}</span>
+                  <span className="mono dim small">{a.ended_at ? fmtTime(a.ended_at) : ""}</span>
+                </button>
+              ))}
             </>
           );
         })()}
@@ -216,8 +256,8 @@ export function Inspector(props: {
           );
         })()}
         {spec.kind === "candidate" && <CandidateDetail candidates={props.candidates} id={spec.id} />}
-        {spec.kind === "claim" && <div className="empty">Claim 详情见证据页行内容。</div>}
-        {spec.kind === "hypothesis" && <div className="empty">假设卡详情见证据页行内容。</div>}
+        {spec.kind === "claim" && props.goalId && <ClaimDetail goalId={props.goalId} id={spec.id} />}
+        {spec.kind === "hypothesis" && props.goalId && <HypothesisDetail goalId={props.goalId} id={spec.id} />}
       </div>
     </div>
   );
@@ -236,6 +276,64 @@ function CandidateDetail({ candidates, id }: { candidates: Candidate[]; id: stri
       {(cand.history ?? []).map((h, i) => (
         <div key={i} className="run-row static"><span className="mono small">{fmtTime(h.at)}</span><span className="sa-title">{h.status}</span><span className="muted small">{h.reason?.slice(0, 80)}</span></div>
       ))}
+    </>
+  );
+}
+
+function ClaimDetail({ goalId, id }: { goalId: string; id: string }) {
+  const [claim, setClaim] = useState<null | "missing" | (Awaited<ReturnType<typeof api.evidence>>["claims"][number])>(null);
+  useEffect(() => {
+    api.evidence(goalId)
+      .then((r) => setClaim(r.claims.find((c) => c.id === id) ?? "missing"))
+      .catch(() => setClaim("missing"));
+  }, [goalId, id]);
+  if (claim === null) return <div className="empty">加载中…</div>;
+  if (claim === "missing") return <div className="empty">Claim 不存在或不可见。</div>;
+  const refs = Array.isArray(claim.evidence_refs) ? (claim.evidence_refs as unknown[]) : [];
+  return (
+    <>
+      <Row label="立场">
+        <span className={`state-chip ${claim.stance === "条件内支持" ? "released" : claim.stance === "证据不足" ? "inconclusive" : "rejected"}`}>{claim.stance}</span>
+      </Row>
+      <Row label="内容">{claim.text}</Row>
+      <Row label="适用范围">{claim.scope || "—"}</Row>
+      <Row label="类型">{claim.kind}</Row>
+      <div className="eyebrow" style={{ marginTop: 10 }}>证据引用</div>
+      {refs.length === 0 ? <div className="muted small">无引用</div> : refs.map((r, i) => (
+        <div key={i} className="run-row static"><span className="mono small">{typeof r === "string" ? r : JSON.stringify(r).slice(0, 60)}</span></div>
+      ))}
+    </>
+  );
+}
+
+function HypothesisDetail({ goalId, id }: { goalId: string; id: string }) {
+  const [hyp, setHyp] = useState<null | "missing" | import("./api").HypothesisRow>(null);
+  useEffect(() => {
+    api.hypotheses(goalId)
+      .then((r) => setHyp(r.hypotheses.find((h) => h.id === id) ?? "missing"))
+      .catch(() => setHyp("missing"));
+  }, [goalId, id]);
+  if (hyp === null) return <div className="empty">加载中…</div>;
+  if (hyp === "missing") return <div className="empty">假设卡不存在或不可见。</div>;
+  const verdictTone = hyp.verdict === "supported_in_scope" ? "released"
+    : hyp.verdict === "falsified_in_scope" || hyp.verdict === "implementation_failed" ? "rejected" : "inconclusive";
+  return (
+    <>
+      <Row label="陈述">{hyp.statement}</Row>
+      <Row label="阶段/状态">
+        <span className="role-badge">{hyp.stage}</span>{" "}
+        <span className="state-chip candidate">{hyp.state}</span>
+        {hyp.verdict && <span className={`state-chip ${verdictTone}`} style={{ marginLeft: 6 }}>{hyp.verdict}</span>}
+      </Row>
+      <Row label="机制">{hyp.mechanism || "—"}</Row>
+      <Row label="适用条件">{hyp.applicability || "—"}</Row>
+      <Row label="关键变量">{hyp.key_variable || "—"}</Row>
+      <Row label="可证伪预测">{hyp.falsifier || "—"}</Row>
+      <Row label="主指标">
+        {hyp.primary_metric || "—"}{hyp.min_effect != null && <span className="mono muted small"> · 最小效应 {hyp.min_effect}</span>}
+      </Row>
+      <Row label="下一步">{hyp.next_step || "—"}</Row>
+      <Row label="复活条件">{hyp.revive_condition || "—"}</Row>
     </>
   );
 }

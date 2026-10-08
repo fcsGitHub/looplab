@@ -58,6 +58,12 @@ export class Api {
 
   // ---- evolution / evidence ----
   candidates(goalId: string) { return this.get(`/v1/goals/${goalId}/candidates`) as Promise<{ candidates: Candidate[] }>; }
+  problems(goalId: string) { return this.get(`/v1/goals/${goalId}/problems`) as Promise<{ problems: ProblemRow[] }>; }
+  proposals(goalId: string) { return this.get(`/v1/goals/${goalId}/proposals`) as Promise<{ proposals: ProposalRow[] }>; }
+  hypotheses(goalId: string) { return this.get(`/v1/goals/${goalId}/hypotheses`) as Promise<{ hypotheses: HypothesisRow[] }>; }
+  rollbackRelease(goalId: string, releaseId: string, body: { scope?: string; reason?: string }) {
+    return this.post(`/v1/goals/${goalId}/releases/${releaseId}/rollback`, body);
+  }
   evidence(goalId: string) { return this.get(`/v1/goals/${goalId}/evidence`) as Promise<EvidenceBundle>; }
   releases(goalId: string) { return this.get(`/v1/goals/${goalId}/releases`) as Promise<{ releases: ReleaseRow[] }>; }
   pointers() { return this.get("/v1/pointers") as Promise<{ pointers: Pointer[] }>; }
@@ -99,7 +105,22 @@ export interface Candidate {
   id: string; digest: string; kind: string; title: string; status: string;
   parents: string[]; history: { status: string; reason: string; at: string }[] | null;
 }
-export interface ReleaseRow { id: string; candidate_id: string; kind: string; status: string; parent_release: string | null; created_at: string; }
+export interface ReleaseRow { id: string; candidate_id: string; kind: string; status: string; parent_release: string | null; created_at: string; scope?: string | null; }
+export interface ProblemRow {
+  id: string; title: string; description: string; failure_class: string;
+  status: string; created_at: string;
+}
+export interface ProposalRow {
+  id: string; problem_id: string; mechanism: string; expected_effect: string;
+  min_experiment: string; rollback: string; status: string;
+  allowed_paths: string[] | null; created_at: string;
+}
+export interface HypothesisRow {
+  id: string; statement: string; mechanism: string; applicability: string;
+  key_variable: string; falsifier: string; primary_metric: string;
+  min_effect: string | null; next_step: string; stage: string; state: string;
+  verdict: string | null; revive_condition: string; created_at: string;
+}
 export interface Pointer { scope: string; candidate_id: string; release_id: string; pointer_version: number; }
 export interface OptimizerRun {
   id: string; backend: string; mode: string; epoch_index: number | null; status: string;
@@ -127,8 +148,8 @@ export interface WorkerRow {
 }
 export interface EvidenceBundle {
   artifacts: { digest: string; name: string; media_type: string; size_bytes: number; producer_role: string }[];
-  claims: { id: string; text: string; stance: string; scope: string; kind: string }[];
-  hypotheses: { id: string; statement: string; stage: string; state: string; verdict: string | null }[];
+  claims: { id: string; text: string; stance: string; scope: string; kind: string; evidence_refs?: unknown }[];
+  hypotheses: HypothesisRow[];
   skills: { id: string; name: string; version: string; status: string }[];
   memories: { id: string; kind: string; content: string; utility: string }[];
 }

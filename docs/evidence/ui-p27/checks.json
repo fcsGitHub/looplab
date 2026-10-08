@@ -1,0 +1,42 @@
+[
+  {
+    "name": "chat: goal.created 里程碑卡出现",
+    "pass": true
+  },
+  {
+    "name": "chat: graph_planned 里程碑卡出现",
+    "pass": true
+  },
+  {
+    "name": "chat: 里程碑卡可点入目标检查器",
+    "pass": true
+  },
+  {
+    "name": "topbar: 优先级调整产生 priority_changed 卡（5→1）",
+    "pass": true
+  },
+  {
+    "name": "chat: steer_accepted 卡出现（对话流反馈闭环）",
+    "pass": true
+  },
+  {
+    "name": "chat: attempt 卡可点入轨迹检查器",
+    "pass": true
+  },
+  {
+    "name": "task 检查器: node_key 可见",
+    "pass": true
+  },
+  {
+    "name": "task 检查器: 依赖行存在",
+    "pass": true
+  },
+  {
+    "name": "task 检查器: 执行尝试行存在",
+    "pass": true
+  },
+  {
+    "name": "目标到达终态（真实 worker 执行）",
+    "pass": false
+  }
+]

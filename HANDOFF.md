@@ -1,5 +1,107 @@
 # HANDOFF — 交接状态
 
+更新时间：2026-10-07（P27：对话流闭环 + 优先级/审批进对话 + 检查器充实）· 分支：`main`
+
+## P27：工作台第二轮迭代（2026-10-07）
+
+承接 P26，继续「优化迭代，加强页面显示，agent 功能」。全部改动纯前端（`apps/web`
++ 两个验证脚本）；控制面零改动。tsc + vite build + 全仓 typecheck + 全量测试
+（122 passed / 0 failed）+ 真实浏览器活体验证（0 控制台错误）。
+
+### 1. 对话流成为完整的人机协作面（agent 功能）
+
+- **审批进对话流**：`approval.requested` 渲染为里程碑卡（含 kind/诊断节点说明），
+  PENDING 时卡下内联「批准重规划 / 驳回」按钮（P20 审批门的用户侧闭环——不再需要
+  眼睛盯着审批条）；裁决状态取自真实账本事件 `approval.granted/rejected`
+  （随目标流回放），裁决后按钮消失、显示「已批准/已驳回」。注意 `/v1/approvals`
+  只返回 PENDING 行（V20），已裁决状态不能从该列表取——这是活体验证发现并修正的。
+- **steer 反馈闭环**：`goal.steer_accepted` 卡（"引导已接受，下一轮生效"）——
+  用户发消息后首次有服务端确认。
+- **`goal.revise_capped` 卡**（danger，含已应用次数）与 **`goal.priority_changed` 卡**
+  （from → to）。
+- **里程碑卡全面可点入检查器**：`attempt.committed` → 轨迹检查器、`goal.*` →
+  目标检查器、`task.failed` → 对应 attempt 轨迹。
+- **修复**：`task.failed` 卡此前读 `error_class`/`detail`，真实 payload 是
+  `{attempt_id, summary, outcome}`（goals.ts onAttemptCommitted）——显示"未分类"
+  且无内容；已按真实 payload 修正。
+
+### 2. 调度优先级 UI（A22 后端能力的用户侧）
+
+- 顶栏优先级选择器（1..9，仅 goal 存在时显示），走 `set_priority` 命令 +
+  事件审计；当前值来自 `/v1/goals` 列表真实行。
+- 侧栏「进行中目标」每行显示 `P{priority}` 徽标。
+
+### 3. 检查器充实（页面显示）
+
+- **任务检查器**（此前仅 4 行占位）：node_key/图版本、依赖 chips、最近错误类 +
+  完整「执行尝试」列表（可点入轨迹检查器——检查器间钻取，Inspector 新增
+  onOpenInspector 通道）。
+- **证据页渲染 memories**：`/evidence` 一直返回 memories 字段但从未展示；
+  现按 utility 着色（helpful/harmful/neutral）+ kind 徽标渲染。
+
+### 4. 活体验证（真实栈：control + worker + deepseek-flash）
+
+`scripts/ui-p27-verify.mjs`（9/10 通过 + 0 控制台错误）：注册→发送 is_odd 目标→
+goal.created/graph_planned 卡→卡点入目标检查器→优先级 5→1（DB 落库 + 卡渲染）→
+steer 卡→attempt 卡点入轨迹→任务检查器（依赖/尝试）。第 10 项（终态）因目标进入
+P20 审批门未到终态——恰成为 `scripts/ui-p27-approval-verify.mjs` 的场景：
+approval.requested 卡→内联批准→自动重规划→**COMPLETED**；补验回放路径：裁决后
+按钮消失、显示"已批准"（10-*.png）。证据：`docs/evidence/ui-p27/`（截图 + checks.json）。
+
+---
+
+更新时间：2026-10-07（P26：工作台对话流 + 演进管线可视化）· 分支：`main`
+
+## P26：工作台迭代——对话流、演进管线、检查器详情（2026-10-07）
+
+本轮围绕「优化迭代，加强页面显示，agent 功能」落地（全部改动在 `apps/web`，
+控制面零改动；`apps/web` tsc+vite 构建与全仓 typecheck 通过）：
+
+### 1. 对话流：Agent 里程碑卡（新 `src/chat.tsx`）
+
+此前聊天区只有用户消息，Agent 的声音缺失（设计 §16 要求"用户消息 / Agent 消息
+（可嵌紧凑数据卡）"）。现在 `mergeTimeline` 把 DB 用户消息与 SSE 真实事件按时间
+合并为一条对话流，里程碑卡派生自事件 payload，不虚构任何进度：
+
+- `goal.created` / `goal.graph_planned`（节点清单 + 规划备注）/ `goal.completed`
+- `attempt.committed`（outcome 着色 + A2A handoff 摘要 + token 用量）
+- `task.failed` / `goal.verification_failed` / `goal.stalled`（负结果如实显示）
+- `evaluation.completed`（按裁决着色，可点进候选详情）/ `release.promoted` /
+  `release.rolled_back(_to)` / `steer.applied`
+
+聊天区新增跟随滚动（上滑暂停、回底恢复，同 Trajectory 模式）。
+
+### 2. 演进页（优化迭代可视化）
+
+- 新增 **问题（失败归因）** 与 **变更提案** 区：来自 `/problems` `/proposals`
+  真实行（状态、failure_class、机制、allowed_paths）。
+- 优化器 reflection 从 title tooltip 改为可展开的 `<details>` 块（逐轮）。
+- 发布列表新增 **回滚** 按钮（admin 可见；V26 语义：admin-only，指针切回父版本，
+  带不可撤销副作用的确认文案；member 隐藏，服务端仍强制 admin）。
+
+### 3. 检查器详情（替换占位）
+
+- **假设卡检查器**：陈述/阶段/机制/适用条件/关键变量/可证伪预测/主指标+最小效应/
+  下一步/裁决（着色）/复活条件——数据来自 `/hypotheses`。
+- **Claim 检查器**：立场 chip/内容/适用范围/类型/证据引用列表。
+
+### 4. 修复
+
+- `--surface-1` token 未定义（`.worker-row` 背景静默失效）→ 在 `:root` 定义为
+  `var(--bg2)`。
+- 里程碑卡 outcome 判定最初写成 `COMMITTED`，实取值为 `SUCCEEDED/FAILED`
+  （活体验证发现并修正着色）。
+
+### 活体验证（真实栈，deepseek-flash）
+
+dev-stack 拉起 control+worker 后用真实浏览器走通全链：注册→建会话→发送目标→
+真实 planner 出 4 节点图→worker 执行（沙箱拒绝跨工作区读取被轨迹如实记录）→
+attempt 提交/失败里程碑卡→evidence 出现 `hello-ui.txt` 等 5 个真实工件→
+collect-problems 归因出 2 个真实问题并在演进页渲染→假设卡/Claim 检查器→
+取消确认→CANCELLED。全程 SSE 实时、自动滚动、预算 $0.27 内。
+
+---
+
 更新时间：2026-09-27（P25 补遗 II：宿主级自愈栈）· 分支：`main`
 
 ## P25 补遗 II：宿主自愈栈（2026-09-27 第二次夜间坍塌后）

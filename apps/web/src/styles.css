@@ -37,6 +37,7 @@
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --r-sm: 6px; --r-md: 8px; --r-lg: 12px;
+  --surface-1: var(--bg2);
   --topbar-h: 46px;
   --shadow-pop: 0 8px 28px rgba(0, 0, 0, .42), 0 2px 8px rgba(0, 0, 0, .3);
   --ease: cubic-bezier(.25, .8, .3, 1);
@@ -586,3 +587,53 @@ a.run-row { color: inherit; text-decoration: none; }
 .approval-item { display: inline-flex; align-items: center; gap: 8px; margin-right: 14px; }
 .approval-item button { padding: 1px 10px; font-size: 12px; }
 .side-goal-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+
+/* ---- Agent 里程碑卡（对话流，v3 迭代） ---- */
+.msg.agent { max-width: 96%; }
+.data-card {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%;
+  text-align: left; font: inherit; color: var(--text1);
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-left: 2px solid var(--text4);
+  border-radius: var(--r-md, 8px); padding: 7px 10px;
+  cursor: default; animation: msg-in .18s var(--ease);
+}
+.data-card.ok { border-left-color: var(--accent); }
+.data-card.warn { border-left-color: var(--warn); }
+.data-card.danger { border-left-color: var(--danger); }
+.data-card.info { border-left-color: var(--violet, var(--accent)); }
+.data-card.link { cursor: pointer; }
+.data-card.link:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: color-mix(in srgb, var(--accent) 6%, var(--surface-1)); }
+.dc-glyph { font-size: 12px; line-height: 1.5; flex-shrink: 0; }
+.data-card.ok .dc-glyph { color: var(--accent); }
+.data-card.warn .dc-glyph { color: var(--warn); }
+.data-card.danger .dc-glyph { color: var(--danger); }
+.data-card.info .dc-glyph { color: var(--violet, var(--accent)); }
+.dc-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dc-head { font-size: 12.5px; font-weight: 600; }
+.dc-meta { font-weight: 400; color: var(--text3); font-size: 11px; }
+.dc-line { font-size: 12px; color: var(--text2); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+/* ---- 优化器反思 ---- */
+.opt-reflection { margin: 4px 0; }
+.opt-reflection .log { max-height: 200px; margin-top: 3px; }
+.run-row .mini.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.run-row .mini.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* ---- P27：审批内联操作 + 优先级控制 + 任务依赖 + 记忆 ---- */
+.ms-approval-actions { display: flex; gap: 6px; margin: 4px 0 2px 2px; }
+.ms-approval-actions button { padding: 2px 12px; font-size: 12px; }
+.ms-approval-done { margin: 3px 0 2px 2px; color: var(--text3); }
+.priority-sel { display: inline-flex; align-items: center; gap: 5px; }
+.priority-sel select {
+  font: inherit; font-size: 12px; color: var(--text1);
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 4px; cursor: pointer;
+}
+.priority-sel select:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.dep-chip {
+  display: inline-block; margin-right: 5px; padding: 0 7px;
+  font-size: 11px; color: var(--text2);
+  border: 1px solid var(--border); border-radius: 5px; background: var(--surface-1);
+}
+.memory-row .sa-title { color: var(--text2); }

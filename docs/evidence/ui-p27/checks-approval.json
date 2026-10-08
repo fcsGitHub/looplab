@@ -1,0 +1,26 @@
+[
+  {
+    "name": "chat: approval.requested 卡出现（真实审批门）",
+    "pass": true
+  },
+  {
+    "name": "审批卡: 内联「批准重规划」按钮可见",
+    "pass": true
+  },
+  {
+    "name": "topbar: 状态 ACTIVE + awaiting_approval",
+    "pass": true
+  },
+  {
+    "name": "批准后: 自动重规划（graph_planned 修订卡）",
+    "pass": true
+  },
+  {
+    "name": "批准后目标到达终态",
+    "pass": true
+  },
+  {
+    "name": "审批卡: 裁决后按钮消失",
+    "pass": false
+  }
+]

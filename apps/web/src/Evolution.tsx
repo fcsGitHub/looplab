@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  api, type Candidate, type EpochInfo, type OptimizerRun, type Pointer, type ReleaseRow,
+  api, type Candidate, type EpochInfo, type OptimizerRun, type Pointer, type ProblemRow,
+  type ProposalRow, type ReleaseRow,
 } from "./api";
 import type { EventStreamState } from "./useEventStream";
 import { LineChart, StatCard, type Series, type VMarker } from "./charts";
@@ -16,8 +17,9 @@ export function EvolutionView(props: {
   candidates: Candidate[];
   stream: EventStreamState;
   onOpenInspector: (s: InspectorSpec) => void;
+  userRole?: string;
 }) {
-  const { goalId, candidates, stream, onOpenInspector } = props;
+  const { goalId, candidates, stream, onOpenInspector, userRole } = props;
   const [runs, setRuns] = useState<OptimizerRun[]>([]);
   const [epoch, setEpoch] = useState<EpochInfo | null>(null);
   const [starting, setStarting] = useState(false);
@@ -184,7 +186,7 @@ export function EvolutionView(props: {
         <>
           <div className="eyebrow" style={{ marginTop: 14 }}>优化器运行</div>
           {runs.map((r) => (
-            <div key={r.id} className={`run-row static opt-row ${r.status === "RUNNING" ? "running" : ""}`} title={r.reflection ?? ""}>
+            <div key={r.id} className={`run-row static opt-row ${r.status === "RUNNING" ? "running" : ""}`}>
               <span className={`state-chip ${r.status === "RUNNING" ? "evaluating" : r.status === "COMPLETED" ? "released" : r.status === "FAILED" ? "failed" : ""}`}>{r.status}</span>
               <span className="role-badge">{r.backend}</span>
               <span className="mono muted small">{r.mode}{r.epoch_index != null ? ` · epoch ${r.epoch_index}` : ""}</span>
@@ -196,8 +198,21 @@ export function EvolutionView(props: {
               {r.status === "RUNNING" && <span className="pulse" aria-label="运行中" />}
             </div>
           ))}
+          {runs.some((r) => r.reflection) && (
+            <details className="raw-events" style={{ marginTop: 6 }}>
+              <summary className="muted small">优化器反思（reflection，逐轮展开）</summary>
+              {[...runs].sort((a, b) => b.created_at.localeCompare(a.created_at)).filter((r) => r.reflection).map((r) => (
+                <div key={r.id} className="opt-reflection">
+                  <div className="mono dim small">{r.created_at.slice(5, 16).replace("T", " ")} · {r.backend} · {r.status}</div>
+                  <pre className="log mono">{r.reflection}</pre>
+                </div>
+              ))}
+            </details>
+          )}
         </>
       )}
+
+      <ProblemPipeline goalId={goalId} stream={stream} />
 
       {/* 候选 */}
       <div className="eyebrow" style={{ marginTop: 14 }}>候选（内容寻址谱系）</div>
@@ -211,19 +226,77 @@ export function EvolutionView(props: {
         </button>
       ))}
 
-      <ReleaseList goalId={goalId} stream={stream} />
+      <ReleaseList goalId={goalId} stream={stream} userRole={userRole} onNotice={setNotice} />
     </div>
   );
 }
 
-function ReleaseList({ goalId, stream }: { goalId: string; stream: EventStreamState }) {
+/* 问题与提案：演进循环的输入端（真实失败 → 归因 → 最小补丁）。
+   全部来自 /problems 与 /proposals 真实行。 */
+function ProblemPipeline({ goalId, stream }: { goalId: string; stream: EventStreamState }) {
+  const [problems, setProblems] = useState<ProblemRow[]>([]);
+  const [proposals, setProposals] = useState<ProposalRow[]>([]);
+  useEffect(() => {
+    api.problems(goalId).then((r) => setProblems(r.problems)).catch(() => {});
+    api.proposals(goalId).then((r) => setProposals(r.proposals)).catch(() => {});
+  }, [goalId, stream.events.length]);
+  if (!problems.length && !proposals.length) return null;
+  return (
+    <>
+      <div className="eyebrow" style={{ marginTop: 14 }}>问题（失败归因）</div>
+      {problems.map((p) => (
+        <div key={p.id} className="run-row static" title={p.description}>
+          <span className={`state-chip ${p.status === "OPEN" ? "evaluating" : "released"}`}>{p.status}</span>
+          <span className="role-badge" data-role="Curator">{p.failure_class}</span>
+          <span className="sa-title">{p.title}</span>
+          <span className="mono dim small">{p.created_at.slice(5, 16).replace("T", " ")}</span>
+        </div>
+      ))}
+      {proposals.length > 0 && <div className="eyebrow" style={{ marginTop: 12 }}>变更提案（机制 + 最小实验）</div>}
+      {proposals.map((pr) => (
+        <div key={pr.id} className="run-row static" title={`${pr.expected_effect}\n最小实验：${pr.min_experiment}\n回滚：${pr.rollback}`}>
+          <span className={`state-chip ${pr.status === "PROPOSED" ? "evaluating" : "released"}`}>{pr.status}</span>
+          <span className="sa-title">{pr.mechanism.slice(0, 90)}{(pr.mechanism.length ?? 0) > 90 ? "…" : ""}</span>
+          <span className="mono muted small">{(pr.allowed_paths ?? []).join(", ")}</span>
+          <span className="mono dim small">{pr.created_at.slice(5, 16).replace("T", " ")}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function ReleaseList({ goalId, stream, userRole, onNotice }: {
+  goalId: string;
+  stream: EventStreamState;
+  userRole?: string;
+  onNotice: (msg: string) => void;
+}) {
   const [releases, setReleases] = useState<ReleaseRow[]>([]);
   const [pointers, setPointers] = useState<Pointer[]>([]);
-  useEffect(() => {
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(() => {
     api.releases(goalId).then((r) => setReleases(r.releases)).catch(() => {});
     api.pointers().then((r) => setPointers(r.pointers)).catch(() => {});
-  }, [goalId, stream.events.length]);
+  }, [goalId]);
+  useEffect(() => { load(); }, [load, stream.events.length]);
+
+  const rollback = useCallback(async (r: ReleaseRow) => {
+    if (busy) return;
+    if (!window.confirm(`回滚发布 ${r.id.slice(0, 12)}…？指针将切回父版本；已发生的外部副作用不会被撤销。`)) return;
+    setBusy(r.id);
+    try {
+      await api.rollbackRelease(goalId, r.id, { scope: r.scope ?? undefined, reason: "operator rollback from workbench" });
+      onNotice("回滚已执行：版本指针已切回父版本。");
+      load();
+    } catch (e) {
+      onNotice(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [busy, goalId, load, onNotice]);
+
   if (!releases.length && !pointers.length) return null;
+  const canRollback = userRole === "admin";
   return (
     <>
       <div className="eyebrow" style={{ marginTop: 14 }}>发布与指针</div>
@@ -239,6 +312,11 @@ function ReleaseList({ goalId, stream }: { goalId: string; stream: EventStreamSt
           <span className={`state-chip ${r.status === "ROLLED_BACK" ? "rolled_back" : r.kind}`}>{r.status}</span>
           <span className="mono small">{r.id}</span>
           <span className="mono muted">{r.kind} · {r.created_at.slice(5, 16).replace("T", " ")}</span>
+          {canRollback && r.status !== "ROLLED_BACK" && (
+            <button className="mini danger" disabled={busy === r.id} onClick={() => rollback(r)} title="将版本指针切回父版本（V26：admin-only）">
+              {busy === r.id ? "回滚中…" : "回滚"}
+            </button>
+          )}
         </div>
       ))}
     </>
